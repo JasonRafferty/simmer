@@ -1,0 +1,17 @@
+services:
+  simmer:
+    build: .
+    container_name: simmer
+    restart: unless-stopped
+    environment:
+      TALLY_URL: http://tally:80
+    volumes:
+      - simmer-data:/data
+    networks:
+      - cloudflare_tunnel
+volumes:
+  simmer-data:
+networks:
+  cloudflare_tunnel:
+    external: true
+    name: jrapp-remote-access_default
