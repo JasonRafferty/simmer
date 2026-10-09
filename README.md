@@ -49,6 +49,6 @@ python3 scripts/prepare-tasty.py /path/to/input --output /path/to/staging --cata
 node scripts/merge-tasty.mjs /path/to/staging data
 ```
 
-Staging downloads only the dataset's matching BuzzFeed photos, checks JPEG dimensions, skips existing titles and retains original ingredient quantities (not inconsistent metric conversions). Merging backs up the catalogue, preserves saved recipes/calendar and rejects duplicate names, contents or photos. The repository's MIT label does not establish permission for the underlying Tasty content; do not redistribute these datasets without checking source rights.
+Staging downloads only the dataset's matching BuzzFeed photos, checks JPEG dimensions, skips existing titles and retains original ingredient quantities (not inconsistent metric conversions). Rerunning staging reuses completed downloads. For a diagnosed DNS outage, `--photo-ip` accepts a verified public address for the photo host while keeping normal hostname/TLS verification; it does not change system DNS. Merging backs up the catalogue, preserves saved recipes/calendar and rejects duplicate names, contents or photos. The repository's MIT label does not establish permission for the underlying Tasty content; do not redistribute these datasets without checking source rights.
 
 Docker configuration uses a separate persistent volume. This app currently has no authentication: do not expose it publicly until access control is configured. Offline editing is not supported.

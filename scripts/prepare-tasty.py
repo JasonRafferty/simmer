@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Stage the public sandhaka Tasty dataset with verified, locally downloaded photos."""
-import argparse,collections,concurrent.futures,hashlib,html,json,math,os,re,sqlite3,time,unicodedata
+import argparse,collections,concurrent.futures,hashlib,html,http.client,ipaddress,json,math,os,re,socket,sqlite3,time,unicodedata
 from pathlib import Path
 from urllib.parse import urlparse,urlencode,urlunparse,parse_qsl
-from urllib.request import Request,build_opener,HTTPRedirectHandler
+from urllib.request import Request,build_opener,HTTPRedirectHandler,HTTPSHandler
 from urllib.error import HTTPError
 from importlib.util import spec_from_file_location,module_from_spec
 
@@ -24,6 +24,16 @@ class SafeRedirect(HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):
         if not allowed(newurl):raise ValueError('Unexpected photo redirect')
         return super().redirect_request(req,fp,code,msg,headers,newurl)
+class PhotoAddress(HTTPSHandler):
+    """Optional DNS diagnostic fallback; retains hostname and normal TLS verification."""
+    def __init__(self,address):super().__init__();self.address=address
+    def https_open(self,req):
+        if not allowed(req.full_url):raise ValueError('Unexpected photo host')
+        def connect(host,**kwargs):
+            connection=http.client.HTTPSConnection(host,**kwargs)
+            connection._create_connection=lambda address,timeout=socket._GLOBAL_DEFAULT_TIMEOUT,source_address=None:socket.create_connection((self.address,address[1]),timeout,source_address)
+            return connection
+        return self.do_open(connect,req,context=self._context)
 def stage_recipe(dish,recipe,tags):
     slug=clean(dish.get('recipe_id'));name=clean(dish.get('name'))
     if not re.fullmatch(r'[a-z0-9-]+',slug) or not 1<=len(name)<=180:raise ValueError('invalid_title')
@@ -45,7 +55,8 @@ def stage_recipe(dish,recipe,tags):
     def minutes(value):return min(1440,max(0,int(value))) if isinstance(value,(int,float)) and math.isfinite(value) else 0
     return {'providerId':'tasty-'+hashlib.sha256(slug.encode()).hexdigest()[:24],'provider':'Tasty','providerURL':'https://tasty.co/','name':name,'ingredients':ingredients,'instructions':instructions,'servings':2,'yieldUnverified':True,'prep':minutes(dish.get('prep_time')),'cook':minutes(dish.get('cook_time')),'source':'https://tasty.co/recipe/'+slug,'recipeCuisine':cuisines,'recipeCategory':['Dessert'] if any(t['name']=='desserts' for t in attached) else [],'diets':diets,'tagsInferred':False,'datasetURL':'https://github.com/sandhaka/recipes-dataset','datasetLicence':'Repository labelled MIT; underlying Tasty recipe and photo rights remain applicable.'}
 def run():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('input');p.add_argument('--output',required=True);p.add_argument('--catalogue-root',required=True);a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('input');p.add_argument('--output',required=True);p.add_argument('--catalogue-root',required=True);p.add_argument('--photo-ip',help='Optional verified public photo-server IP if local DNS is unavailable');a=p.parse_args()
+    if a.photo_ip and not ipaddress.ip_address(a.photo_ip).is_global:raise SystemExit('Photo-server address must be public.')
     source=Path(a.input);output=Path(a.output);output.mkdir(parents=True,exist_ok=True);photos=output/'catalogue-images';photos.mkdir(exist_ok=True)
     recipes={r['id']:r for r in json.loads((source/'recipes.json').read_text())};tags={t['id']:t for t in json.loads((source/'tags.json').read_text())};dishes=json.loads((source/'dishes.json').read_text())
     db=sqlite3.connect('file:'+str(Path(a.catalogue_root).resolve()/'catalogue.db')+'?mode=ro',uri=True)
@@ -71,7 +82,8 @@ def run():
             recipe['image']=cached[recipe['providerId']];return recipe,None
         for attempt in range(3):
             try:
-                with build_opener(SafeRedirect()).open(Request(url,headers={'User-Agent':'SimmerPersonalRecipeImport/1.0','Accept':'image/jpeg'}),timeout=10) as response:
+                handlers=[SafeRedirect()]+([PhotoAddress(a.photo_ip)] if a.photo_ip else [])
+                with build_opener(*handlers).open(Request(url,headers={'User-Agent':'SimmerPersonalRecipeImport/1.0','Accept':'image/jpeg'}),timeout=10) as response:
                     data=response.read(6_000_001)
                 size=archive_import.jpeg_size(data)
                 if len(data)>6_000_000 or not size or not all(64<=n<=10000 for n in size):return None,'invalid_photo'
