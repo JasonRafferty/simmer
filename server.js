@@ -3,10 +3,13 @@ import {DatabaseSync} from 'node:sqlite';
 import {mkdir,readFile} from 'node:fs/promises';
 import {resolve,extname,join} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {spawn} from 'node:child_process';
 import {fetchRecipePage,extractRecipe} from './lib/import.js';
 import {combine,key,quantity,mergeQuantity} from './lib/ingredients.js';
 import {searchRecipes,getRecipe,discoveryFilters} from './lib/discovery.js';
+import {openCatalogue,searchCatalogue,getCatalogueRecipe,catalogueStatus,catalogueFilters,localImageExists,enqueueCandidates} from './lib/catalogue.js';
 const PORT=Number(process.env.PORT||4195), DATA=resolve(process.env.DATA_DIR||'data'),ROOT=resolve('public');
+await mkdir(DATA,{recursive:true});const catalogue=openCatalogue(DATA);
 await mkdir(DATA,{recursive:true});const db=new DatabaseSync(join(DATA,'simmer.db'));db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS recipes(id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS meals(slot TEXT PRIMARY KEY, recipe TEXT NOT NULL, servings REAL NOT NULL); CREATE TABLE IF NOT EXISTS sends(id TEXT PRIMARY KEY, data TEXT NOT NULL);');
 if(!db.prepare('PRAGMA table_info(meals)').all().some(c=>c.name==='name'))db.exec("ALTER TABLE meals ADD COLUMN name TEXT NOT NULL DEFAULT ''");
 const state=()=>({recipes:db.prepare('SELECT data FROM recipes ORDER BY rowid DESC').all().map(r=>JSON.parse(r.data)),meals:db.prepare('SELECT slot,recipe,servings,name FROM meals').all()});
@@ -16,6 +19,14 @@ const send=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application
 const text=(s,max=20000)=>String(s??'').trim().slice(0,max);
 const validSlot=s=>/^\d{4}-\d{2}-\d{2}:(lunch|dinner)$/.test(s)&&!Number.isNaN(Date.parse(s.slice(0,10)));
 const tallyURL=process.env.TALLY_URL||'http://127.0.0.1:4188';
+let catalogueWorker=null;
+function startCatalogueWorker(limit=20){
+  if(catalogueWorker)return;
+  const lock=catalogue.prepare("SELECT value FROM catalogue_meta WHERE key='worker-lock'").get();if(lock&&Number(lock.value)>Date.now()-60000)return;
+  catalogueWorker=spawn(process.execPath,['scripts/enrich-catalogue.mjs','--data-dir',DATA,'--limit',String(limit)],{stdio:['ignore','ignore','ignore']});catalogueWorker.on('error',()=>{catalogueWorker=null;});catalogueWorker.on('exit',()=>{catalogueWorker=null;});
+}
+function continueCatalogue(){if(process.env.CATALOGUE_AUTOBUILD==='0')return;if(catalogue.prepare("SELECT 1 FROM candidates WHERE status='pending' LIMIT 1").get())startCatalogueWorker(200);}
+const catalogueTimer=setInterval(continueCatalogue,60000);catalogueTimer.unref();
 async function tally(path,body){const r=await fetch(tallyURL+path,{method:body?'POST':'GET',headers:{'X-Who':'jason',...(body?{'Content-Type':'application/json'}:{}),...(process.env.TALLY_COOKIE?{Cookie:process.env.TALLY_COOKIE}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(10000)});if(!r.ok){const data=await r.json().catch(()=>({}));const e=Error(r.status===409?data.error:'Tally is unavailable or requires sign-in. Retry this send when it reconnects.');e.status=r.status===409?409:502;throw e;}return r.json();}
 async function deliver(requestId,payload){const result=await tally('/api/integrations/simmer',payload);db.prepare('UPDATE sends SET data=? WHERE id=?').run(JSON.stringify(result),requestId);return result;}
 function preview(body,lists){
@@ -27,21 +38,36 @@ function preview(body,lists){
 }
 const server=createServer(async(req,res)=>{try{
   const url=new URL(req.url,'http://localhost');
+  if(url.pathname.startsWith('/catalogue-images/')&&req.method==='GET'){
+    if(!localImageExists(DATA,url.pathname))return send(res,404,{error:'Photo not found'});
+    const file=join(DATA,url.pathname.slice(1));res.writeHead(200,{'Content-Type':{'.jpg':'image/jpeg','.png':'image/png','.webp':'image/webp'}[extname(file)],'Cache-Control':'public,max-age=31536000,immutable','X-Content-Type-Options':'nosniff'});return res.end(await readFile(file));
+  }
   if(url.pathname==='/ingredients.js'&&req.method==='GET'){res.writeHead(200,{'Content-Type':'text/javascript','Cache-Control':'no-cache'});return res.end(await readFile('lib/ingredients.js'));}
   if(url.pathname==='/steps.js'&&req.method==='GET'){res.writeHead(200,{'Content-Type':'text/javascript','Cache-Control':'no-cache'});return res.end(await readFile('lib/steps.js'));}
   if(url.pathname.startsWith('/api/')){
     if(req.method==='POST'&&req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`&&req.headers.origin!==`https://${req.headers.host}`)return send(res,403,{error:'Cross-origin writes are not allowed.'});
     let body={};if(req.method==='POST'){let raw='';for await(const part of req){raw+=part;if(raw.length>500000)return send(res,413,{error:'Request too large'});}body=JSON.parse(raw||'{}');}
     if(url.pathname==='/api/state'&&req.method==='GET')return send(res,200,state());
-    if(url.pathname==='/api/discover'&&req.method==='GET')return send(res,200,{recipes:await searchRecipes(url.searchParams.get('q'),{category:url.searchParams.get('category'),cuisine:url.searchParams.get('cuisine')})});
-    if(url.pathname==='/api/discover/filters'&&req.method==='GET')return send(res,200,await discoveryFilters());
-    if(url.pathname==='/api/discover/recipe'&&req.method==='GET')return send(res,200,await getRecipe(url.searchParams.get('id')??''));
+    if(url.pathname==='/api/catalogue/status'&&req.method==='GET')return send(res,200,catalogueStatus(catalogue));
+    if(url.pathname==='/api/discover'&&req.method==='GET'){
+      const query=url.searchParams.get('q')??'',filters={category:url.searchParams.get('category')??'',cuisine:url.searchParams.get('cuisine')??'',style:url.searchParams.get('style')??''};
+      const local=searchCatalogue(catalogue,query,filters).filter(r=>localImageExists(DATA,r.image));let external=[],warning='';
+      let checking=0;if(!url.searchParams.has('catalogueOnly')&&query.trim().length>=2&&query.length<=80){checking=enqueueCandidates(catalogue,query);if(checking)startCatalogueWorker();}
+      if(!url.searchParams.has('catalogueOnly')&&!filters.style&&(query.trim().length>=2||filters.category||filters.cuisine))try{external=await searchRecipes(query,filters);}catch(e){warning=e.message;}
+      const names=new Set(),recipes=[];for(const r of [...local,...external]){const key=r.name.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ');if(r.image&&!names.has(key)){names.add(key);recipes.push(r);}}
+      return send(res,200,{recipes:recipes.slice(0,100),warning,checking,catalogueReady:catalogueStatus(catalogue).ready});
+    }
+    if(url.pathname==='/api/discover/filters'&&req.method==='GET'){
+      const local=catalogueFilters(catalogue);let external={categories:[],cuisines:[]};try{external=await discoveryFilters();}catch(e){if(!catalogueStatus(catalogue).ready)throw e;}
+      return send(res,200,{categories:[...new Set([...external.categories,...local.categories])],cuisines:[...new Set([...external.cuisines,...local.cuisines])],styles:local.styles});
+    }
+    if(url.pathname==='/api/discover/recipe'&&req.method==='GET'){const id=url.searchParams.get('id')??'';if(id.startsWith('nlg-')){const recipe=getCatalogueRecipe(catalogue,id);if(!localImageExists(DATA,recipe.image))throw Error('This recipe photo is unavailable.');return send(res,200,recipe);}return send(res,200,await getRecipe(id));}
     if(url.pathname==='/api/recipe'&&req.method==='POST'){
       if(!text(body.name,180)||!Array.isArray(body.ingredients)||!body.ingredients.length||body.ingredients.length>100||!Number.isFinite(Number(body.servings))||Number(body.servings)<1||Number(body.servings)>100)throw Error('Add a name, valid portions and ingredients.');
       const safeURL=s=>{try{const u=new URL(s);return ['http:','https:'].includes(u.protocol)?u.href:'';}catch{return '';}};
-      const providerId=/^\d{1,12}$/.test(body.providerId??'')?body.providerId:null;
+      const providerId=/^(?:\d{1,12}|nlg-[a-f0-9]{24})$/.test(body.providerId??'')?body.providerId:null;
       const existing=providerId?state().recipes.find(r=>r.providerId===providerId):null;
-      const recipe={id:body.id&&/^[\w-]{1,64}$/.test(body.id)?body.id:existing?.id??randomUUID(),name:text(body.name,180),servings:Number(body.servings),ingredients:body.ingredients.map(s=>text(s,500)).filter(Boolean),instructions:text(body.instructions),prep:Math.max(0,Math.min(1440,Number(body.prep)||0)),cook:Math.max(0,Math.min(1440,Number(body.cook)||0)),source:safeURL(body.source),image:safeURL(body.image),...(providerId?{providerId,provider:'TheMealDB',providerURL:'https://www.themealdb.com',yieldUnverified:!!body.yieldUnverified}:{})};
+      const recipe={id:body.id&&/^[\w-]{1,64}$/.test(body.id)?body.id:existing?.id??randomUUID(),name:text(body.name,180),servings:Number(body.servings),ingredients:body.ingredients.map(s=>text(s,500)).filter(Boolean),instructions:text(body.instructions),prep:Math.max(0,Math.min(1440,Number(body.prep)||0)),cook:Math.max(0,Math.min(1440,Number(body.cook)||0)),source:safeURL(body.source),image:localImageExists(DATA,body.image)?body.image:safeURL(body.image),...(providerId?{providerId,provider:providerId.startsWith('nlg-')?'RecipeNLG':'TheMealDB',providerURL:providerId.startsWith('nlg-')?'https://recipenlg.cs.put.poznan.pl/':'https://www.themealdb.com',yieldUnverified:!!body.yieldUnverified}:{})};
       recipe.yieldUnverified=!!body.yieldUnverified;
       if(!recipe.ingredients.length)throw Error('Add an ingredient.');db.prepare('INSERT INTO recipes VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(recipe.id,JSON.stringify(recipe));return send(res,200,recipe);
     }
@@ -79,5 +105,5 @@ const server=createServer(async(req,res)=>{try{
   const file=resolve(ROOT,'.'+decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname));if(!file.startsWith(ROOT+'/'))return send(res,404,{error:'Not found'});
   try{const content=await readFile(file);res.writeHead(200,{'Content-Type':({'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'})[extname(file)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});res.end(content);}catch{return send(res,404,{error:'Not found'});}
 }catch(e){send(res,e.status||400,{error:e.message||'Something went wrong.'});}});
-server.listen(PORT,()=>console.log(`Simmer on http://localhost:${PORT}`));
-for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>server.close(()=>{db.close();process.exit(0);}));
+server.listen(PORT,()=>{console.log(`Simmer on http://localhost:${PORT}`);continueCatalogue();});
+for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{clearInterval(catalogueTimer);catalogueWorker?.kill('SIGTERM');server.close(()=>{catalogue.close();db.close();process.exit(0);});});

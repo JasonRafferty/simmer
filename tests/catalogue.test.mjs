@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm,writeFile,mkdir} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {openCatalogue,publishRecipe,searchCatalogue,catalogueFilters,catalogueStatus,getCatalogueRecipe,recipeFingerprint,recipeTags,matchingTitle,usablePhotoURL,localImageExists,enqueueCandidates} from '../lib/catalogue.js';
+import {imageExtension,fetchPhoto} from '../lib/photo.js';
+import {parse} from '../lib/ingredients.js';
+import {spawn} from 'node:child_process';
+import {createServer} from 'node:net';
+
+const photo='/catalogue-images/'+'a'.repeat(64)+'.jpg';
+const recipe={providerId:'nlg-'+'1'.repeat(24),provider:'RecipeNLG',name:'Thai Chicken Curry',ingredients:['500g chicken','1 tablespoon curry paste'],instructions:'Heat the oil.\n\nAdd the chicken and cook thoroughly for 20 minutes.',image:photo,source:'https://example.com/thai-chicken',servings:2,yieldUnverified:false,categories:['Chicken'],cuisines:['Thai'],styles:['Curries'],prep:5,cook:20};
+test('catalogue search, filtering, safe query syntax, deduplication and queue',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'simmer-catalogue-'));const db=openCatalogue(dir);t.after(async()=>{db.close();await rm(dir,{recursive:true,force:true});});
+ publishRecipe(db,recipe);assert.equal(searchCatalogue(db,'chicken',{cuisine:'Thai',style:'Curries'}).length,1);assert.equal(searchCatalogue(db,'chicken',{cuisine:'Italian'}).length,0);assert.equal(searchCatalogue(db,'',{style:'Curries'}).length,1);assert.doesNotThrow(()=>searchCatalogue(db,'" OR * : NEAR(foo)'));assert.equal(getCatalogueRecipe(db,recipe.providerId).name,recipe.name);
+ assert.deepEqual(catalogueFilters(db),{categories:['Chicken'],cuisines:['Thai'],styles:['Curries']});assert.equal(catalogueStatus(db).ready,1);
+ const equivalent={...recipe,name:'THAI CHICKEN CURRY!',ingredients:['0.5kg chicken','3 teaspoons curry paste']};assert.equal(recipeFingerprint(recipe),recipeFingerprint(equivalent));assert.throws(()=>publishRecipe(db,{...equivalent,providerId:'nlg-'+'2'.repeat(24),image:photo.replace('a'.repeat(64),'b'.repeat(64))}),/UNIQUE/);assert.equal(catalogueStatus(db).ready,1);
+ assert.throws(()=>publishRecipe(db,{...recipe,providerId:'nlg-'+'3'.repeat(24),name:'Different dish'}),/UNIQUE/);assert.throws(()=>publishRecipe(db,{...recipe,image:''}),/Incomplete/);
+ const id='nlg-'+'4'.repeat(24);db.prepare("INSERT INTO candidates(id,url,title,data,status) VALUES(?,?,?,?,'unprocessed')").run(id,'https://example.com/ramen','Japanese Ramen','{}');db.prepare('INSERT INTO candidate_search VALUES(?,?,?)').run(id,'Japanese Ramen','noodles');assert.equal(enqueueCandidates(db,'ramen'),1);assert.equal(db.prepare('SELECT status,priority FROM candidates WHERE id=?').get(id).priority,2);
+ assert.equal(localImageExists(dir,photo),false);await mkdir(join(dir,'catalogue-images'));await writeFile(join(dir,photo.slice(1)),Buffer.from([255,216,255]));assert.equal(localImageExists(dir,photo),true);assert.equal(localImageExists(dir,'/catalogue-images/../../simmer.db'),false);
+});
+test('source matching, genuine photo checks, cuisines and readable measurement units',async()=>{
+ assert.equal(matchingTitle('Thai Chicken Curry','Thai chicken curry recipe'),true);assert.equal(matchingTitle('Thai Chicken Curry','Chocolate Cake'),false);assert.equal(usablePhotoURL('https://img.example/fdc-shareGraphic.png'),false);assert.equal(usablePhotoURL('https://img.example/real-curry.jpg'),true);assert.equal(usablePhotoURL('javascript:alert(1)'),false);
+ const tags=recipeTags({...recipe,keywords:'Thai,Asian,Stir-Fry',recipeCuisine:'Thai'});assert.ok(tags.cuisines.includes('Thai'));assert.ok(tags.styles.includes('Curries'));assert.ok(tags.styles.includes('Stir-fries'));assert.ok(!tags.categories.includes('Vegetarian'));
+ assert.equal(parse('1 tablespoon oil').unit,'tbsp');assert.equal(parse('2 teaspoons salt').name,'salt');assert.equal(parse('1/2 c. butter').unit,'cup');assert.equal(parse('8 ounces flour').unit,'oz');assert.equal(parse('1 kilogram potatoes').unit,'kg');
+ assert.equal(imageExtension(Buffer.from('<html>not a photo at all</html>')),null);await assert.rejects(()=>fetchPhoto('http://127.0.0.1/photo.jpg'),/Private/);
+});
+test('catalogue HTTP search, photo serving and saving remain separate from the catalogue',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'simmer-catalogue-api-'));await mkdir(join(dir,'catalogue-images'));await writeFile(join(dir,photo.slice(1)),Buffer.from([255,216,255]));const db=openCatalogue(dir);publishRecipe(db,recipe);db.close();
+ const probe=createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));
+ const child=spawn(process.execPath,['server.js'],{cwd:new URL('..',import.meta.url),env:{...process.env,PORT:String(port),DATA_DIR:dir},stdio:['ignore','pipe','pipe']});t.after(async()=>{if(child.exitCode===null){const done=new Promise(r=>child.once('exit',r));child.kill();await done;}await rm(dir,{recursive:true,force:true});});
+ await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Startup timeout')),10000);child.stdout.on('data',c=>{if(String(c).includes('Simmer on')){clearTimeout(timer);resolve();}});child.once('exit',()=>{clearTimeout(timer);reject(Error('Server exited'));});});
+ const base='http://127.0.0.1:'+port,api=async(path,body)=>fetch(base+'/api/'+path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined}).then(r=>r.json());
+ assert.equal((await api('state')).recipes.length,0);const search=await api('discover?catalogueOnly=1&q=chicken&cuisine=Thai&style=Curries');assert.equal(search.recipes.length,1);const detail=await api('discover/recipe?id='+recipe.providerId);assert.equal(detail.ingredients.length,2);
+ const image=await fetch(base+photo);assert.equal(image.status,200);assert.equal(image.headers.get('content-type'),'image/jpeg');const saved=await api('recipe',detail);assert.equal(saved.provider,'RecipeNLG');assert.equal(saved.image,photo);assert.equal((await api('state')).recipes.length,1);assert.equal((await api('catalogue/status')).ready,1);const again=await api('recipe',detail);assert.equal(again.id,saved.id);assert.equal((await api('state')).recipes.length,1);
+});
