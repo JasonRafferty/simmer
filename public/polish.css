@@ -1,0 +1,52 @@
+/* Mobile-first polish: layered over styles.css */
+:root{--muted:#6f6664}
+.sync{font-size:.72rem}
+.eyebrow{font-size:.7rem}
+.slot small{font-size:.68rem}
+.slot em,.recipe-card small,.hint{font-size:.78rem}
+.slot.empty b{color:#9a8f8a}
+.tabs button{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:.72rem}
+.tabs button svg{flex:none}
+.tabs [aria-selected=true]{color:var(--dark)}
+
+@media(max-width:699px){
+  .shell{padding-top:16px;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+  header{margin-bottom:14px}
+  .brand img{width:32px;height:32px}
+  .brand{font-size:1.2rem}
+  .brand span,.sync{display:none}
+  /* tabs become a bottom bar, within thumb reach */
+  .tabs{position:fixed;left:12px;right:12px;bottom:max(12px,env(safe-area-inset-bottom));z-index:15;margin:0;padding:6px;background:#ffffffee;backdrop-filter:blur(14px);box-shadow:0 8px 30px -8px #292b3640;border-radius:22px}
+  .tabs button{padding:8px 4px;border-radius:16px;color:var(--muted)}
+  .tabs [aria-selected=true]{background:#fce8de;box-shadow:none}
+  #toast{bottom:calc(92px + env(safe-area-inset-bottom))}
+  #meal-actions:not([hidden]){bottom:calc(96px + env(safe-area-inset-bottom))}
+  .section-title{margin-bottom:14px}
+  h1{font-size:1.75rem}
+  /* week: compact rows so a lot more fits on screen */
+  #calendar{gap:8px}
+  .day{grid-template-columns:38px 1fr;gap:8px;align-items:stretch}
+  .date{padding-top:0;justify-content:center;font-size:.72rem}
+  .date b{font-size:1.2rem}
+  .day.today .date{color:var(--dark);font-weight:800}
+  .day.today .slots{position:relative}
+  .day.today .date b{background:var(--dark);color:#fff;border-radius:10px;padding:2px 7px}
+  .slot{min-height:62px;padding:10px 12px;border-radius:16px}
+  .slot.filled{min-height:84px}
+  .slot small{margin-bottom:5px}
+  .slot b{font-size:.85rem}
+  .slot.empty b{font-size:.8rem}
+  .hint#move-hint{margin:6px 0 14px}
+  /* sheets: dialogs slide up from the bottom */
+  dialog{width:100%;max-width:none;margin:auto 0 0;border-radius:26px 26px 0 0;max-height:92dvh;padding:12px 20px calc(24px + env(safe-area-inset-bottom));animation:sheet .22s ease-out}
+  dialog::before{content:"";display:block;width:40px;height:4px;border-radius:2px;background:#d9d0cb;margin:0 auto 14px}
+  .dialog-head button{width:44px;height:44px}
+  .icon-button,.week-nav button,.search-chips button,.import-box button{min-height:44px}
+  .recipe-grid{gap:10px}
+  .search-chips{flex-wrap:nowrap;overflow-x:auto;margin-inline:-18px;padding-inline:18px;scrollbar-width:none}
+  .search-chips button{flex:none}
+  .search-chips::-webkit-scrollbar{display:none}
+}
+@keyframes sheet{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+.recipe-card:active,.slot:active{transform:scale(.98)}
+.recipe-card,.slot{transition:transform .12s}
