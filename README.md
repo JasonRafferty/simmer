@@ -29,7 +29,7 @@ Open http://localhost:4195. Run tests with `npm test`.
 - `TALLY_COOKIE`: optional authenticated Tally session; never commit it.
 - `MEALDB_API_KEY`: optional recipe provider key. The default development key is `1`; check [provider terms](https://www.themealdb.com/api.php) before public release.
 
-Search combines a local Epicurious photo collection with live TheMealDB results, deduplicating equivalent titles. If TheMealDB is unavailable, local search still works. Cuisine tags in the local collection are inferred; the archive does not provide servings or original recipe URLs. Portions must be confirmed before scaling. Instructions retain the original detail, displayed as numbered steps. Name-only meals have no shopping ingredients.
+Search combines local Epicurious and Tasty photo collections with live TheMealDB results, deduplicating equivalent titles. If TheMealDB is unavailable, local search still works. Epicurious cuisine tags are inferred; Tasty supplies its own cuisine tags. These datasets do not provide serving counts, so portions must be confirmed before scaling. Instructions retain the original detail, displayed as numbered steps. Name-only meals have no shopping ingredients.
 
 To import your supplied image archive, use Python 3 and Node 24:
 
@@ -41,5 +41,14 @@ node scripts/index-archive.mjs /path/to/empty-staging
 Stop Simmer before replacing `data/catalogue.db` and `data/catalogue-images` with the staged equivalents. Back up the existing catalogue first and never replace `data/simmer.db` (your saved recipes and calendar). The supplied archive yielded 12,858 unique usable recipes with local photos. Keep datasets and photos out of Git. Archive licence metadata is not a guarantee of rights to the underlying Epicurious content; check permissions before redistributing it.
 
 Recipe-link import supports accessible [Schema.org Recipe](https://schema.org/Recipe) pages. External photos and MealDB searches contact their providers.
+
+The additional mixed-cuisine [Tasty collection](https://github.com/sandhaka/recipes-dataset) has 4,961 source entries. Download its `out_set/recipes.json`, `dishes.json` and `tags.json` into a local input folder, then stage and merge:
+
+```sh
+python3 scripts/prepare-tasty.py /path/to/input --output /path/to/staging --catalogue-root data
+node scripts/merge-tasty.mjs /path/to/staging data
+```
+
+Staging downloads only the dataset's matching BuzzFeed photos, checks JPEG dimensions, skips existing titles and retains original ingredient quantities (not inconsistent metric conversions). Merging backs up the catalogue, preserves saved recipes/calendar and rejects duplicate names, contents or photos. The repository's MIT label does not establish permission for the underlying Tasty content; do not redistribute these datasets without checking source rights.
 
 Docker configuration uses a separate persistent volume. This app currently has no authentication: do not expose it publicly until access control is configured. Offline editing is not supported.
