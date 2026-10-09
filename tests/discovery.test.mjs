@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mealRecipe,searchRecipes,getRecipe} from '../lib/discovery.js';
+test('combines name, ingredient and category matches and intersects filters',async()=>{
+  const original=globalThis.fetch;globalThis.fetch=async url=>{const u=new URL(url);const ids=u.pathname.includes('search')?['201']:u.searchParams.has('i')?['202']:u.searchParams.get('c')==='UniqueCategory'?['201','202']:u.searchParams.has('a')?['202']:['203','201'];return {ok:true,json:async()=>({meals:ids.map(id=>({idMeal:id,strMeal:'Meal '+id}))})};};
+  try{const all=await searchRecipes('unique combined query');assert.deepEqual(all.map(r=>r.providerId),['201','202','203']);const filtered=await searchRecipes('unique combined query',{category:'UniqueCategory',cuisine:'UniqueCuisine'});assert.deepEqual(filtered.map(r=>r.providerId),['202']);}finally{globalThis.fetch=original;}
+});
 test('discovery retains source data and marks missing yield honestly',()=>{
   const r=mealRecipe({idMeal:'123',strMeal:'Chicken pasta',strIngredient1:'Pasta',strMeasure1:'200g',strIngredient2:'Chicken',strMeasure2:'',strIngredient3:' ',strInstructions:'Boil.\r\n\r\nServe.',strMealThumb:'https://example.com/pasta.jpg'});
   assert.equal(r.name,'Chicken pasta');assert.deepEqual(r.ingredients,['200g Pasta','Chicken']);assert.equal(r.yieldUnverified,true);assert.equal(r.servings,2);assert.equal(r.prep,0);assert.equal(r.source,'https://www.themealdb.com/meal.php?c=123');assert.equal(r.instructions,'Boil.\n\nServe.');
