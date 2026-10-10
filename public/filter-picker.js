@@ -1,6 +1,6 @@
 const chevron='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const check='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" aria-hidden="true"><path d="m5 12 4 4L19 5"/></svg>';
-const effortNames={'5':'≤ 5 ingredients','6-10':'6–10 ingredients','11+':'11+ ingredients'};
+const optionNames={'discover-effort':{'5':'≤ 5 ingredients','6-10':'6–10 ingredients','11+':'11+ ingredients'},'discover-time':{'30':'Under 30 min','30-60':'30–60 min','60+':'Over 1 hour'}};
 export const selectedFilterValues=select=>[...select.selectedOptions].map(o=>o.value).filter(Boolean);
 export function setFilterValues(select,values){const selected=[].concat(values??[]).filter(Boolean);for(const option of select.options)option.selected=selected.includes(option.value);}
 
@@ -12,7 +12,7 @@ export function setupFilterPickers(){
  document.body.append(dialog);const query=dialog.querySelector('input'),list=dialog.querySelector('#filter-picker-options'),search=dialog.querySelector('.filter-picker-search');
  const chips=document.createElement('div');chips.id='active-filters';chips.setAttribute('aria-label','Active filters');document.querySelector('.search-filters').after(chips);
  const titleOf=select=>select.closest('label').firstChild.textContent.trim();
- const labelOf=(select,value)=>select.id==='discover-effort'&&value?effortNames[value]:value||select.options[0]?.textContent||'Any';
+ const labelOf=(select,value)=>optionNames[select.id]&&value?optionNames[select.id][value]:value||select.options[0]?.textContent||'Any';
  function choose(value){if(!active)return;const chosen=new Set(selectedFilterValues(active));if(!value)chosen.clear();else if(chosen.has(value))chosen.delete(value);else chosen.add(value);setFilterValues(active,[...chosen]);sync();renderOptions();[...list.querySelectorAll('button')].find(b=>b.dataset.value===value)?.focus();}
  function renderOptions(){
   list.replaceChildren();if(!active)return;const needle=query.value.trim().toLocaleLowerCase();let lastGroup=null,visible=0;
