@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parse,scaled,combine,mergeQuantity,rebuildRows} from '../lib/ingredients.js';
+import {parse,scaled,combine,mergeQuantity,rebuildRows,quantity} from '../lib/ingredients.js';
 import {instructionSteps} from '../lib/steps.js';
 import {extractRecipe,publicIPv4} from '../lib/import.js';
 import {createServer} from 'node:http';
@@ -25,6 +25,19 @@ test('scaling, fractions and safe compatible merging',()=>{
   const rows=rebuildRows([parse('200g pasta'),parse('2 onions')]);const overrides=new Map([[rows[0].identity,{name:'Wholewheat pasta',amount:175,unit:'g'}],[rows[1].identity,{selected:false}]]);
   const updated=rebuildRows([parse('400g pasta'),parse('4 onions')],overrides);assert.equal(updated[0].name,'Wholewheat pasta');assert.equal(updated[0].amount,175);assert.equal(updated[1].selected,false);
   assert.deepEqual(instructionSteps('STEP 1\nHeat at 180°C for 20 minutes.\n\nSTEP 2\nCheck it is cooked.'),['Heat at 180°C for 20 minutes.','Check it is cooked.']);
+});
+test('imperial ingredient measurements display and merge in metric units',()=>{
+ assert.equal(quantity(parse('1 lb potatoes')),'454 g');
+ assert.equal(quantity(parse('2 oz cheese')),'56.7 g');
+ assert.equal(quantity(parse('1 cup milk')),'240 ml');
+ assert.equal(quantity(parse('1 tbsp oil')),'15 ml');
+ assert.equal(quantity(parse('1/2 tsp salt')),'2.5 ml');
+ assert.equal(quantity(parse('2 fl oz stock')),'59.1 ml');
+ assert.equal(quantity(parse('2 onions')),'2');
+ assert.deepEqual(scaled(['1 cup milk'],1,2).map(quantity),['480 ml']);
+ assert.equal(quantity(combine([parse('1 cup milk'),parse('60 ml milk')])[0]),'300 ml');
+ assert.equal(mergeQuantity('240 ml',parse('1 cup milk')),'480 ml');
+ assert.equal(mergeQuantity('100 g',parse('1 cup flour')),null);
 });
 test('structured recipe import and private network blocking',()=>{
   const data={'@graph':[{'@type':['Recipe'],name:'Pasta &amp; peas',recipeYield:'4 servings',recipeIngredient:['200g pasta','100g peas'],recipeInstructions:[{'@type':'HowToSection',itemListElement:[{text:'Boil pasta.'},{text:'Add peas.'}]}],prepTime:'PT10M',cookTime:'PT1H5M',image:[{url:'https://example.com/photo.jpg'}]}]};

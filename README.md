@@ -25,6 +25,7 @@ Open http://localhost:4195. Run tests with `npm test`.
 - Import recipe links or add your own from Saved.
 - Plan lunch and dinner, including quick name-only meals. Hold to edit, delete, drag or swap meals.
 - Save recipes together and adjust known portions. When the source gives no serving count, the controls scale multiples of the original recipe instead of claiming a number of portions. Choose which ingredients to include during shopping review.
+- Ingredient amounts display in metric where conversion is reliable: ounces/pounds become grams, and cups/spoons/fluid ounces become millilitres. Counts stay as counts; cups are treated as 240 ml and are never guessed as grams. Original recipe text remains unchanged.
 - Review shopping before sending to a shared Tally list. Retries cannot apply the same send twice.
 - Undo meal removals and recipe deletions.
 
