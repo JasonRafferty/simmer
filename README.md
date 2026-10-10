@@ -16,6 +16,7 @@ Open http://localhost:4195. Run tests with `npm test`.
 
 - Search using four multi-select filters: main ingredient, cuisine, dish type and ingredient count (5 or fewer, 6–10, or 11+). Search cuisines, browse popular choices first, and remove individual selections using active filter chips. Options show local counts and respond to the other filters.
 - Rotate adventurous dish ideas that have matches in the local catalogue.
+- Fill unknown cuisine and dish-type tags conservatively with `node scripts/classify-unknown.mjs data` (preview), then add `--apply` to back up and update the catalogue. Existing classifications and recipe content are preserved.
 - Remove unwanted recipes from the shared search collection with confirmation. Local catalogue/search rows are deleted, removed IDs are remembered to prevent re-imports or MealDB reappearance, and saved copies/calendar meals are preserved. Photos remain for saved copies and backups.
 - Import recipe links or add your own from Saved.
 - Plan lunch and dinner, including quick name-only meals. Hold to edit, delete, drag or swap meals.
