@@ -1,0 +1,5 @@
+# Simmer on another computer
+
+Before working on search, recipes, the backend, or a suspected data issue, run `node scripts/check-local-data.mjs` with Node 24 or newer. This read-only check compares the local catalogue with the Mac baseline in `data-requirements.json` and checks its photos and saved-data database. It respects `DATA_DIR` when configured. Check `node --version` first: on Jason's Mac, the default `node` may be Node 20, so use `/Users/jason/.local/node24/bin/node scripts/check-local-data.mjs` there. A Node version error is not evidence of a data mismatch.
+
+`data/` is ignored by Git. A clone or branch switch does not contain the catalogue, imported MealDB recipes, photos, saved recipes, or meal plan. If the check fails, tell Jason exactly what is missing before diagnosing search code or starting the server, since starting the server can create an empty database. Do not overwrite or reimport data without Jason's direction. See “Moving Simmer to another computer” in `README.md` for transfer steps.

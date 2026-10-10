@@ -1,0 +1,9 @@
+{
+  "recordedOn": "2026-10-10",
+  "description": "Mac catalogue after the local MealDB import. Counts include recipes later removed through Simmer.",
+  "minimumSources": {
+    "epic": 12858,
+    "tasty": 4802,
+    "mealdb": 737
+  }
+}

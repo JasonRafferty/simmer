@@ -25,6 +25,22 @@ test('search matches stems, tags and typos, pages results and keeps a stable shu
  assert.equal(suggestWord(index,'carbonarra'),'carbonara');
 });
 
+test('exact and phrase title matches rank above ingredient matches',()=>{
+ const index=buildIndex([
+  recipe('a','Rice with chicken',{},{ingredients:['chicken curry spice','rice']}),
+  recipe('b','Quick chicken curry'),
+  recipe('c','Chicken curry'),
+ ]);
+ assert.deepEqual(searchIndex(index,'chicken curry').recipes.map(r=>r.providerId),['c','b','a']);
+});
+
+test('sauces are absent from plain browse but available by style or text search',()=>{
+ const index=buildIndex([recipe('a','Tomato sauce',{styles:['Sauces & dips']}),recipe('b','Chicken stew',{styles:['Stews']})]);
+ assert.deepEqual(searchIndex(index,'').recipes.map(r=>r.providerId),['b']);
+ assert.deepEqual(searchIndex(index,'',{style:'Sauces & dips'}).recipes.map(r=>r.providerId),['a']);
+ assert.deepEqual(searchIndex(index,'tomato sauce').recipes.map(r=>r.providerId),['a']);
+});
+
 test('facets report popular cuisines and time ranges',()=>{
  const index=buildIndex([recipe('a','A'),recipe('b','B'),recipe('c','C',{cuisines:['Everyday / international']}),recipe('d','D',{cuisines:['Italian']})]);
  const facets=indexFacets(index,{cuisine:'Thai'});

@@ -14,7 +14,7 @@ Open http://localhost:4195. Run tests with `npm test`.
 
 ## Features
 
-- Search using four multi-select filters: main ingredient, cuisine, dish type and ingredient count (5 or fewer, 6–10, or 11+). Search cuisines, browse popular choices first, and remove individual selections using active filter chips. Options show local counts and respond to the other filters.
+- Search using multi-select filters for main ingredient, cuisine, dish type, ingredient count and estimated time. Search cuisines, browse popular choices first, and remove individual selections using active filter chips. Option counts come from the local catalogue and respond to the other filters. Plain browsing leaves out desserts, drinks and sauces; a filter or text search can still find them.
 - Rotate adventurous dish ideas that have matches in the local catalogue.
 - Fill unknown cuisine and dish-type tags conservatively with `node scripts/classify-unknown.mjs data` (preview), then add `--apply` to back up and update the catalogue. Existing classifications and recipe content are preserved.
 - For a cuisine-only pass, add `--cuisine-only`; add `--everyday` to put remaining unclassifiable recipes in “Everyday / international” without claiming a regional origin. Cuisine inference uses recognised dish names and combined ingredient clues, not a single generic ingredient.
@@ -34,9 +34,23 @@ Open http://localhost:4195. Run tests with `npm test`.
 - `DATA_DIR`: defaults to `data`; SQLite state must be preserved and backed up.
 - `TALLY_URL`: defaults to http://127.0.0.1:4188. Requires Tally's Simmer integration endpoint.
 - `TALLY_COOKIE`: optional authenticated Tally session; never commit it.
-- `MEALDB_API_KEY`: optional recipe provider key. The default development key is `1`; check [provider terms](https://www.themealdb.com/api.php) before public release.
+- `MEALDB_API_KEY`: optional key for the one-time MealDB import. The default development key is `1`; check [provider terms](https://www.themealdb.com/terms_of_use.php) before public release.
 
-Search combines local Epicurious and Tasty photo collections with live TheMealDB results, deduplicating equivalent titles. If TheMealDB is unavailable, local search still works. Epicurious cuisine tags are inferred; Tasty supplies its own cuisine tags. These datasets do not provide serving counts, so portions must be confirmed before scaling. Instructions retain the original detail, displayed as numbered steps. Name-only meals have no shopping ingredients.
+Search uses the local catalogue, including imported Epicurious, Tasty and TheMealDB recipes and photos. It does not contact TheMealDB while searching or opening a recipe. TheMealDB import uses the official API, retains source attribution, skips duplicate titles and previously removed recipes, and can be rerun to add new meals. These datasets do not provide reliable serving counts, so portions must be confirmed before scaling. Instructions retain the original detail, displayed as numbered steps. Name-only meals have no shopping ingredients.
+
+To import or update TheMealDB recipes on this computer, run with Node 24:
+
+```sh
+node scripts/import-mealdb.mjs data
+```
+
+The importer creates `data/catalogue-before-mealdb-*.db` before changing the catalogue and records a summary in `catalogue_meta` under `mealdb-import-report`. It downloads photos into `data/catalogue-images/`. A failed or interrupted run can be rerun.
+
+### Moving Simmer to another computer
+
+The `data/` directory is ignored by Git, so switching branches or cloning this repository does **not** transfer the imported recipes. Stop Simmer on the old computer, then copy `data/catalogue.db` **and** the entire `data/catalogue-images/` folder to the same paths on the new computer. Copy `data/simmer.db` too if you want your saved recipes and meal plan. Start Simmer on the new computer after the copy; Node 24 is required. The backup files are optional. If you cannot copy the old catalogue, run the MealDB import command above on the new computer, but that only restores MealDB recipes, not the existing Epicurious and Tasty imports.
+
+Run `npm run check:data` after copying. It reads the local database and verifies the three source counts, the MealDB import record, the photos, and `simmer.db`. `CLAUDE.md` and `AGENTS.md` tell Claude and Codex to run this check and flag mismatches when they work in the repository.
 
 To import your supplied image archive, use Python 3 and Node 24:
 
@@ -47,7 +61,7 @@ node scripts/index-archive.mjs /path/to/empty-staging
 
 Stop Simmer before replacing `data/catalogue.db` and `data/catalogue-images` with the staged equivalents. Back up the existing catalogue first and never replace `data/simmer.db` (your saved recipes and calendar). The supplied archive yielded 12,858 unique usable recipes with local photos. Keep datasets and photos out of Git. Archive licence metadata is not a guarantee of rights to the underlying Epicurious content; check permissions before redistributing it.
 
-Recipe-link import supports accessible [Schema.org Recipe](https://schema.org/Recipe) pages. External photos and MealDB searches contact their providers.
+Recipe-link import supports accessible [Schema.org Recipe](https://schema.org/Recipe) pages. Importing a recipe link contacts its source; normal catalogue search and recipe details are local.
 
 The additional mixed-cuisine [Tasty collection](https://github.com/sandhaka/recipes-dataset) has 4,961 source entries. Download its `out_set/recipes.json`, `dishes.json` and `tags.json` into a local input folder, then stage and merge:
 

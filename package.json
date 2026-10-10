@@ -1,1 +1,1 @@
-{"name":"simmer","private":true,"version":"1.0.0","type":"module","engines":{"node":">=24"},"scripts":{"start":"node server.js","test":"node --test tests/*.test.mjs"}}
+{"name":"simmer","private":true,"version":"1.0.0","type":"module","engines":{"node":">=24"},"scripts":{"start":"node server.js","test":"node --test tests/*.test.mjs","check:data":"node scripts/check-local-data.mjs"}}
