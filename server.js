@@ -7,10 +7,13 @@ import {fetchRecipePage,extractRecipe} from './lib/import.js';
 import {combine,key,quantity,mergeQuantity} from './lib/ingredients.js';
 import {getRecipe,searchRecipes} from './lib/discovery.js';
 import {combineDiscovery} from './lib/combined-discovery.js';
-import {surpriseFilters} from './lib/catalogue.js';
-import {openCatalogue,searchCatalogue,getCatalogueRecipe,catalogueStatus,catalogueFilters,catalogueIdeas,localImageExists,removedRecipeIds,removeCatalogueRecipe} from './lib/catalogue.js';
+import {openCatalogue,configureCatalogue,searchCataloguePage,surpriseCatalogue,pantryCatalogue,getCatalogueRecipe,catalogueStatus,catalogueFilters,catalogueIdeas,localImageExists,removedRecipeIds,removeCatalogueRecipe} from './lib/catalogue.js';
+import {manualClassification,applyManualClassification} from './lib/manual-classification.js';
 const PORT=Number(process.env.PORT||4195), DATA=resolve(process.env.DATA_DIR||'data'),ROOT=resolve('public');
 await mkdir(DATA,{recursive:true});const catalogue=openCatalogue(DATA);
+// Reviewed tags only replace placeholders, so applying them on every start is safe and survives retagging.
+{const manual=manualClassification(),applied=applyManualClassification(catalogue,manual);if(applied)console.log(`Applied reviewed tags to ${applied} catalogue recipes`);configureCatalogue(catalogue,{hidden:new Set(manual.hidden),hasImage:image=>localImageExists(DATA,image)});}
+const filterKeys=['category','cuisine','style','effort','time'],filtersFrom=params=>Object.fromEntries(filterKeys.map(key=>[key,params.getAll(key).filter(Boolean).slice(0,40)]));
 await mkdir(DATA,{recursive:true});const db=new DatabaseSync(join(DATA,'simmer.db'));db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS recipes(id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS meals(slot TEXT PRIMARY KEY, recipe TEXT NOT NULL, servings REAL NOT NULL); CREATE TABLE IF NOT EXISTS sends(id TEXT PRIMARY KEY, data TEXT NOT NULL);');
 if(!db.prepare('PRAGMA table_info(meals)').all().some(c=>c.name==='name'))db.exec("ALTER TABLE meals ADD COLUMN name TEXT NOT NULL DEFAULT ''");
 const state=()=>({recipes:db.prepare('SELECT data FROM recipes ORDER BY rowid DESC').all().map(r=>JSON.parse(r.data)),meals:db.prepare('SELECT slot,recipe,servings,name FROM meals').all()});
@@ -42,21 +45,22 @@ const server=createServer(async(req,res)=>{try{
     let body={};if(req.method==='POST'){let raw='';for await(const part of req){raw+=part;if(raw.length>500000)return send(res,413,{error:'Request too large'});}body=JSON.parse(raw||'{}');}
     if(url.pathname==='/api/state'&&req.method==='GET')return send(res,200,state());
     if(url.pathname==='/api/catalogue/status'&&req.method==='GET')return send(res,200,catalogueStatus(catalogue));
+    if(url.pathname==='/api/health'&&req.method==='GET')return send(res,200,{ok:true,recipes:catalogueStatus(catalogue).ready});
     if(url.pathname==='/api/discover'&&req.method==='GET'){
-      const query=url.searchParams.get('q')??'',filters=Object.fromEntries(['category','cuisine','style','effort'].map(key=>[key,url.searchParams.getAll(key).filter(Boolean)]));
+      const filters=filtersFrom(url.searchParams),offset=Math.max(0,Math.min(100000,Number(url.searchParams.get('offset'))||0)),seed=text(url.searchParams.get('seed'),40)||randomUUID();
+      const local=searchCataloguePage(catalogue,url.searchParams.get('q')??'',filters,{offset,limit:48,seed}),query=local.corrected??url.searchParams.get('q')??'';
+      // Live MealDB results join the first page only; later pages continue through the local catalogue.
       const seeds={'Curries':'curry','Pasta dishes':'pasta','Salads':'salad','Soups':'soup','Stews':'stew','Noodles':'noodles','Rice dishes':'rice','Grilled & BBQ':'grilled','Pizza':'pizza','Wraps & tacos':'tacos','Pies & pastry':'pie','Sandwiches & burgers':'burger'};
       const remoteQuery=query||(!filters.category.length&&!filters.cuisine.length?seeds[filters.style[0]]??'':'');
-      const online=url.searchParams.get('catalogueOnly')!=='1'&&!filters.effort.length&&(remoteQuery.trim().length>=2||filters.category.length||filters.cuisine.length);
+      const online=!offset&&url.searchParams.get('catalogueOnly')!=='1'&&!filters.effort.length&&!filters.time.length&&(remoteQuery.trim().length>=2||filters.category.length||filters.cuisine.length);
       const remote=online?await searchRecipes(remoteQuery,{...filters,category:filters.category.map(value=>value==='Fish'?'Seafood':value)}).then(recipes=>({recipes})).catch(()=>({recipes:[],warning:'TheMealDB is temporarily unavailable. Local recipes are still available.'})):{recipes:[]};
-      const local=searchCatalogue(catalogue,query,filters).filter(r=>localImageExists(DATA,r.image));
-      const removed=removedRecipeIds(catalogue);
-      return send(res,200,{recipes:combineDiscovery(local,remote.recipes.filter(r=>!removed.has(r.providerId)),filters),filters:catalogueFilters(catalogue,filters,query),warning:remote.warning,catalogueReady:catalogueStatus(catalogue).ready,version:'filters-v2'});
+      const removed=removedRecipeIds(catalogue),recipes=combineDiscovery(local.recipes,remote.recipes.filter(r=>!removed.has(r.providerId)),filters,Infinity);
+      return send(res,200,{recipes,total:local.total+(recipes.length-local.recipes.length),nextOffset:local.nextOffset,seed,corrected:local.corrected,relaxed:local.relaxed,filters:offset?undefined:catalogueFilters(catalogue,filters,query),warning:remote.warning,catalogueReady:catalogueStatus(catalogue).ready,version:'filters-v3'});
     }
-    if(url.pathname==='/api/discover/filters'&&req.method==='GET'){
-      return send(res,200,catalogueFilters(catalogue));
-    }
+    if(url.pathname==='/api/discover/filters'&&req.method==='GET')return send(res,200,catalogueFilters(catalogue));
     if(url.pathname==='/api/discover/ideas'&&req.method==='GET')return send(res,200,{ideas:catalogueIdeas(catalogue)});
-    if(url.pathname==='/api/discover/surprise'&&req.method==='GET')return send(res,200,{filters:surpriseFilters(catalogue)});
+    if(url.pathname==='/api/discover/surprise'&&req.method==='GET')return send(res,200,surpriseCatalogue(catalogue,filtersFrom(url.searchParams),{avoid:url.searchParams.getAll('avoid').slice(0,12)})??{filters:null});
+    if(url.pathname==='/api/discover/pantry'&&req.method==='GET'){const have=url.searchParams.getAll('have').map(h=>text(h,60)).filter(Boolean).slice(0,30);return send(res,200,pantryCatalogue(catalogue,have,{assumeStaples:url.searchParams.get('staples')!=='0',offset:Math.max(0,Number(url.searchParams.get('offset'))||0)}));}
     if(url.pathname==='/api/discover/remove'&&req.method==='POST'){removeCatalogueRecipe(catalogue,text(body.providerId,80));return send(res,200,{removed:true});}
     if(url.pathname==='/api/discover/recipe'&&req.method==='GET'){const id=url.searchParams.get('id')??'';if(/^(?:epic|nlg|tasty)-/.test(id)){const recipe=getCatalogueRecipe(catalogue,id);if(!localImageExists(DATA,recipe.image))throw Error('This recipe photo is unavailable.');return send(res,200,recipe);}return send(res,200,await getRecipe(id));}
     if(url.pathname==='/api/recipe'&&req.method==='POST'){
@@ -102,5 +106,5 @@ const server=createServer(async(req,res)=>{try{
   const file=resolve(ROOT,'.'+decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname));if(!file.startsWith(ROOT+'/'))return send(res,404,{error:'Not found'});
   try{const content=await readFile(file);res.writeHead(200,{'Content-Type':({'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'})[extname(file)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});res.end(content);}catch{return send(res,404,{error:'Not found'});}
 }catch(e){send(res,e.status||400,{error:e.message||'Something went wrong.'});}});
-server.listen(PORT,()=>console.log(`Simmer on http://localhost:${PORT}`));
+server.listen(PORT,()=>{console.log(`Simmer on http://localhost:${PORT}`);setImmediate(()=>catalogueFilters(catalogue));});
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>server.close(()=>{catalogue.close();db.close();process.exit(0);}));
