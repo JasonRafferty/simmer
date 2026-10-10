@@ -95,7 +95,9 @@ function applyFilters(filters){
  const common=new Set(['British','Italian','Indian','Chinese','Mexican','Thai','Japanese','Greek','French','Spanish','American','Korean','Vietnamese']);
  for(const [field,id,label]of [['categories','category','Any ingredient'],['cuisines','cuisine','Any cuisine'],['styles','style','Any dish type']]){
   const select=$('#discover-'+id),selected=selectedFilterValues(select);select.replaceChildren(new Option(label,''));
-  const values=filters[field]??[];
+  const popularIngredients=['Chicken','Pork','Beef','Fish','Lamb','Seafood','Turkey'];
+  const values=[...(filters[field]??[])];
+  if(field==='categories')values.sort((a,b)=>{const rank=value=>{const index=popularIngredients.indexOf(value);return index<0?popularIngredients.length:index;};return rank(a)-rank(b)||a.localeCompare(b);});
   const groups=field==='cuisines'?[['Popular cuisines',values.filter(x=>common.has(x))],['More to explore',values.filter(x=>!common.has(x))]]:[[null,values]];
   for(const [name,items]of groups){if(!items.length)continue;const group=name?document.createElement('optgroup'):select;if(name)group.label=name;for(const value of items)group.append(new Option(value+' · '+(filters.counts?.[field]?.[value]??0).toLocaleString(),value));if(name)select.append(group);}
   for(const value of selected)if(!values.includes(value))select.add(new Option(value+' · 0 local matches',value));setFilterValues(select,selected);
@@ -128,6 +130,7 @@ async function discover(query,retry=0){
   }catch(e){if(sequence===searchSequence)$('#discover-status').textContent=e.message;}finally{if(sequence===searchSequence)$('#discover-form button').disabled=false;}
 }
 $('#discover-form').onsubmit=e=>{e.preventDefault();discover($('#discover-query').value);};
+$('#discover-query').addEventListener('input',e=>{if(!e.target.value)discover('');});
 let ideaPool=[];
 function rotateIdeas(){const previous=new Set([...document.querySelectorAll('.search-chips [data-query]')].map(b=>b.dataset.query));const choices=ideaPool.filter(x=>!previous.has(x));for(let i=choices.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[choices[i],choices[j]]=[choices[j],choices[i]];}$('.search-chips').innerHTML=choices.slice(0,4).map(x=>`<button data-query="${esc(x)}">${esc(x)}</button>`).join('')+'<button data-more-ideas aria-label="Show more adventurous recipe ideas">↻ More ideas</button>';}
 api('discover/ideas').then(({ideas})=>{ideaPool=ideas;rotateIdeas();}).catch(()=>{$('.search-chips').innerHTML='';});
