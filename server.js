@@ -5,9 +5,9 @@ import {resolve,extname,join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {fetchRecipePage,extractRecipe} from './lib/import.js';
 import {combine,key,quantity,mergeQuantity} from './lib/ingredients.js';
-import {getRecipe,searchRecipes,discoveryFilters} from './lib/discovery.js';
+import {getRecipe,searchRecipes} from './lib/discovery.js';
 import {combineDiscovery} from './lib/combined-discovery.js';
-import {openCatalogue,searchCatalogue,getCatalogueRecipe,catalogueStatus,catalogueFilters,localImageExists} from './lib/catalogue.js';
+import {openCatalogue,searchCatalogue,getCatalogueRecipe,catalogueStatus,catalogueFilters,catalogueIdeas,localImageExists,removedRecipeIds,removeCatalogueRecipe} from './lib/catalogue.js';
 const PORT=Number(process.env.PORT||4195), DATA=resolve(process.env.DATA_DIR||'data'),ROOT=resolve('public');
 await mkdir(DATA,{recursive:true});const catalogue=openCatalogue(DATA);
 await mkdir(DATA,{recursive:true});const db=new DatabaseSync(join(DATA,'simmer.db'));db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS recipes(id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS meals(slot TEXT PRIMARY KEY, recipe TEXT NOT NULL, servings REAL NOT NULL); CREATE TABLE IF NOT EXISTS sends(id TEXT PRIMARY KEY, data TEXT NOT NULL);');
@@ -42,16 +42,20 @@ const server=createServer(async(req,res)=>{try{
     if(url.pathname==='/api/state'&&req.method==='GET')return send(res,200,state());
     if(url.pathname==='/api/catalogue/status'&&req.method==='GET')return send(res,200,catalogueStatus(catalogue));
     if(url.pathname==='/api/discover'&&req.method==='GET'){
-      const query=url.searchParams.get('q')??'',filters={category:url.searchParams.get('category')??'',cuisine:url.searchParams.get('cuisine')??'',style:url.searchParams.get('style')??''};
-      const online=url.searchParams.get('catalogueOnly')!=='1'&&(query.trim().length>=2||filters.category||filters.cuisine);
-      const remote=online?await searchRecipes(query,filters).then(recipes=>({recipes})).catch(()=>({recipes:[],warning:'TheMealDB is temporarily unavailable. Local recipes are still available.'})):{recipes:[]};
+      const query=url.searchParams.get('q')??'',filters={category:url.searchParams.get('category')??'',cuisine:url.searchParams.get('cuisine')??'',style:url.searchParams.get('style')??'',effort:url.searchParams.get('effort')??''};
+      const seeds={'Curries':'curry','Pasta dishes':'pasta','Salads':'salad','Soups':'soup','Stews':'stew','Noodles':'noodles','Rice dishes':'rice','Grilled & BBQ':'grilled','Pizza':'pizza','Wraps & tacos':'tacos','Pies & pastry':'pie','Sandwiches & burgers':'burger'};
+      const remoteQuery=query||(!filters.category&&!filters.cuisine?seeds[filters.style]??'':'');
+      const online=url.searchParams.get('catalogueOnly')!=='1'&&!filters.effort&&(remoteQuery.trim().length>=2||filters.category||filters.cuisine);
+      const remote=online?await searchRecipes(remoteQuery,{...filters,category:filters.category==='Fish'?'Seafood':filters.category}).then(recipes=>({recipes})).catch(()=>({recipes:[],warning:'TheMealDB is temporarily unavailable. Local recipes are still available.'})):{recipes:[]};
       const local=searchCatalogue(catalogue,query,filters).filter(r=>localImageExists(DATA,r.image));
-      return send(res,200,{recipes:combineDiscovery(local,remote.recipes,filters),warning:remote.warning,catalogueReady:catalogueStatus(catalogue).ready,version:'epicurious-mealdb-v1'});
+      const removed=removedRecipeIds(catalogue);
+      return send(res,200,{recipes:combineDiscovery(local,remote.recipes.filter(r=>!removed.has(r.providerId)),filters),filters:catalogueFilters(catalogue,filters,query),warning:remote.warning,catalogueReady:catalogueStatus(catalogue).ready,version:'filters-v2'});
     }
     if(url.pathname==='/api/discover/filters'&&req.method==='GET'){
-      const local=catalogueFilters(catalogue),remote=await discoveryFilters().catch(()=>({categories:[],cuisines:[]}));
-      return send(res,200,{...local,categories:[...new Set([...local.categories,...remote.categories])].sort(),cuisines:[...new Set([...local.cuisines,...remote.cuisines])].sort()});
+      return send(res,200,catalogueFilters(catalogue));
     }
+    if(url.pathname==='/api/discover/ideas'&&req.method==='GET')return send(res,200,{ideas:catalogueIdeas(catalogue)});
+    if(url.pathname==='/api/discover/remove'&&req.method==='POST'){removeCatalogueRecipe(catalogue,text(body.providerId,80));return send(res,200,{removed:true});}
     if(url.pathname==='/api/discover/recipe'&&req.method==='GET'){const id=url.searchParams.get('id')??'';if(/^(?:epic|nlg|tasty)-/.test(id)){const recipe=getCatalogueRecipe(catalogue,id);if(!localImageExists(DATA,recipe.image))throw Error('This recipe photo is unavailable.');return send(res,200,recipe);}return send(res,200,await getRecipe(id));}
     if(url.pathname==='/api/recipe'&&req.method==='POST'){
       if(!text(body.name,180)||!Array.isArray(body.ingredients)||!body.ingredients.length||body.ingredients.length>100||!Number.isFinite(Number(body.servings))||Number(body.servings)<1||Number(body.servings)>100)throw Error('Add a name, valid portions and ingredients.');

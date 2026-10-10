@@ -17,7 +17,7 @@ try{
    if(recipe.provider!=='Tasty'||!/^tasty-[a-f0-9]{24}$/.test(recipe.providerId)||!localImageExists(input,recipe.image))throw Error('Invalid staged Tasty recipe');
    if(names.has(name)){duplicates++;continue;}
    await copyFile(join(input,recipe.image.slice(1)),join(data,recipe.image.slice(1)));
-   try{publishRecipe(db,{...recipe,...recipeTags(recipe)});added++;names.add(name);}catch(e){if(String(e.code).includes('CONSTRAINT')||/UNIQUE constraint failed/.test(e.message))duplicates++;else throw e;}
+   try{if(publishRecipe(db,{...recipe,...recipeTags(recipe)})===false){duplicates++;continue;}added++;names.add(name);}catch(e){if(String(e.code).includes('CONSTRAINT')||/UNIQUE constraint failed/.test(e.message))duplicates++;else throw e;}
  }
  const report={...sourceReport,added,duplicates,backup};
  db.prepare('INSERT INTO catalogue_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('tasty-import-report',JSON.stringify(report));

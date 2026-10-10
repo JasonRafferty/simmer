@@ -14,7 +14,9 @@ Open http://localhost:4195. Run tests with `npm test`.
 
 ## Features
 
-- Search recipes with a short, availability-checked category/cuisine list and rotating ideas.
+- Search using four combined filters: main ingredient, cuisine, dish type and effort (up to five ingredient entries, including seasonings). Options show local counts and respond to the other filters. Unknown cuisine is labelled honestly, not guessed.
+- Rotate adventurous dish ideas that have matches in the local catalogue.
+- Remove unwanted recipes from the shared search collection with confirmation. Local catalogue/search rows are deleted, removed IDs are remembered to prevent re-imports or MealDB reappearance, and saved copies/calendar meals are preserved. Photos remain for saved copies and backups.
 - Import recipe links or add your own from Saved.
 - Plan lunch and dinner, including quick name-only meals. Hold to edit, delete, drag or swap meals.
 - Save recipes together, adjust portions and remove ingredients already in your cupboard.
