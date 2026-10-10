@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {createServer} from 'node:http';
+import {spawn} from 'node:child_process';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+
+test('password protects the app and expired undo records are pruned on startup',async t=>{
+ const data=await mkdtemp(join(tmpdir(),'simmer-security-'));
+ const db=new DatabaseSync(join(data,'simmer.db'));
+ db.exec('CREATE TABLE undos(id TEXT PRIMARY KEY,data TEXT NOT NULL)');
+ db.prepare('INSERT INTO undos VALUES(?,?)').run('expired',JSON.stringify({expires:Date.now()-1000}));
+ db.prepare('INSERT INTO undos VALUES(?,?)').run('active',JSON.stringify({expires:Date.now()+60000}));
+ db.close();
+ const reserve=createServer();await new Promise(resolve=>reserve.listen(0,'127.0.0.1',resolve));const port=reserve.address().port;await new Promise(resolve=>reserve.close(resolve));
+ const child=spawn(process.execPath,['server.js'],{cwd:new URL('..',import.meta.url),env:{...process.env,HOST:'127.0.0.1',PORT:String(port),DATA_DIR:data,SIMMER_PASSWORD:'test-secret'},stdio:['ignore','pipe','pipe']});
+ t.after(async()=>{if(child.exitCode===null){const done=new Promise(resolve=>child.once('exit',resolve));child.kill();await done;}await rm(data,{recursive:true,force:true});});
+ await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Startup timeout')),10000);child.stdout.on('data',chunk=>{if(String(chunk).includes('Simmer on')){clearTimeout(timer);resolve();}});child.once('exit',code=>{clearTimeout(timer);reject(Error('Server exited '+code));});});
+ const base=`http://127.0.0.1:${port}`;
+ assert.equal((await fetch(base+'/')).status,401);
+ assert.equal((await fetch(base+'/api/state')).status,401);
+ assert.equal((await fetch(base+'/api/health')).status,200);
+ const headers={Authorization:'Basic '+Buffer.from('simmer:test-secret').toString('base64')};
+ assert.equal((await fetch(base+'/',{headers})).status,200);
+ assert.equal((await fetch(base+'/api/state',{headers})).status,200);
+ const check=new DatabaseSync(join(data,'simmer.db'),{readOnly:true});
+ assert.deepEqual(check.prepare('SELECT id FROM undos ORDER BY id').all().map(row=>row.id),['active']);check.close();
+});

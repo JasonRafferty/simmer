@@ -41,6 +41,21 @@ test('sauces are absent from plain browse but available by style or text search'
  assert.deepEqual(searchIndex(index,'tomato sauce').recipes.map(r=>r.providerId),['a']);
 });
 
+test('plain browse shows meals, while breads and other non-meals remain searchable',()=>{
+ const index=buildIndex([
+  recipe('bread','Garlic flatbread',{styles:['Breads & flatbreads']}),
+  recipe('side','Roasted potatoes',{styles:['Side dishes']}),
+  recipe('snack','Cheese bites',{styles:['Snacks & starters']}),
+  recipe('unknown','Mystery recipe',{styles:['Other dishes']}),
+  recipe('breakfast','Breakfast omelette',{styles:['Breakfast & brunch']}),
+  recipe('dinner','Chicken stew',{styles:['Stews']}),
+ ]);
+ assert.deepEqual(new Set(searchIndex(index,'').recipes.map(r=>r.providerId)),new Set(['breakfast','dinner']));
+ assert.deepEqual(searchIndex(index,'flatbread').recipes.map(r=>r.providerId),['bread']);
+ assert.deepEqual(searchIndex(index,'',{style:'Breads & flatbreads'}).recipes.map(r=>r.providerId),['bread']);
+ assert.deepEqual(searchIndex(index,'',{style:'Side dishes'}).recipes.map(r=>r.providerId),['side']);
+});
+
 test('facets report popular cuisines and time ranges',()=>{
  const index=buildIndex([recipe('a','A'),recipe('b','B'),recipe('c','C',{cuisines:['Everyday / international']}),recipe('d','D',{cuisines:['Italian']})]);
  const facets=indexFacets(index,{cuisine:'Thai'});

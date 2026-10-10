@@ -2,13 +2,16 @@ import {createServer} from 'node:http';
 import {DatabaseSync} from 'node:sqlite';
 import {mkdir,readFile} from 'node:fs/promises';
 import {resolve,extname,join} from 'node:path';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,timingSafeEqual} from 'node:crypto';
 import {fetchRecipePage,extractRecipe} from './lib/import.js';
 import {combine,key,quantity,mergeQuantity} from './lib/ingredients.js';
 import {openCatalogue,configureCatalogue,searchCataloguePage,surpriseCatalogue,pantryCatalogue,getCatalogueRecipe,catalogueStatus,catalogueFilters,catalogueIdeas,localImageExists,removeCatalogueRecipe} from './lib/catalogue.js';
 import {manualClassification,classificationChanges,applyClassificationChanges} from './lib/manual-classification.js';
 import {estimateMinutes} from './lib/catalogue-index.js';
-const PORT=Number(process.env.PORT||4195), DATA=resolve(process.env.DATA_DIR||'data'),ROOT=resolve('public');
+const PORT=Number(process.env.PORT||4195),HOST=process.env.HOST||'127.0.0.1',PASSWORD=process.env.SIMMER_PASSWORD||'',DATA=resolve(process.env.DATA_DIR||'data'),ROOT=resolve('public');
+if(!['127.0.0.1','::1','localhost'].includes(HOST)&&!PASSWORD)throw Error('SIMMER_PASSWORD is required when HOST allows remote connections.');
+const expectedAuth=Buffer.from('Basic '+Buffer.from('simmer:'+PASSWORD).toString('base64'));
+const authorized=req=>{if(!PASSWORD)return true;const provided=Buffer.from(req.headers.authorization||'');return provided.length===expectedAuth.length&&timingSafeEqual(provided,expectedAuth);};
 await mkdir(DATA,{recursive:true});const catalogue=openCatalogue(DATA);
 // Reviewed tags only replace placeholders, so applying them on every start is safe and survives retagging.
 {const manual=manualClassification(),changes=classificationChanges(catalogue,manual);if(changes.length){const backup=join(DATA,'catalogue-before-manual-classification-'+Date.now()+'.db');catalogue.prepare('VACUUM INTO ?').run(backup);applyClassificationChanges(catalogue,changes);console.log(`Applied reviewed tags to ${changes.length} catalogue recipes (backup: ${backup})`);}configureCatalogue(catalogue,{hidden:new Set(manual.hidden),hasImage:image=>localImageExists(DATA,image)});}
@@ -17,6 +20,8 @@ await mkdir(DATA,{recursive:true});const db=new DatabaseSync(join(DATA,'simmer.d
 if(!db.prepare('PRAGMA table_info(meals)').all().some(c=>c.name==='name'))db.exec("ALTER TABLE meals ADD COLUMN name TEXT NOT NULL DEFAULT ''");
 const state=()=>({recipes:db.prepare('SELECT data FROM recipes ORDER BY rowid DESC').all().map(r=>JSON.parse(r.data)),meals:db.prepare('SELECT slot,recipe,servings,name FROM meals').all()});
 db.exec('CREATE TABLE IF NOT EXISTS undos(id TEXT PRIMARY KEY,data TEXT NOT NULL)');
+const pruneUndos=()=>db.prepare("DELETE FROM undos WHERE CAST(json_extract(data,'$.expires') AS INTEGER) < ?").run(Date.now());
+pruneUndos();const undoCleanup=setInterval(pruneUndos,60*60*1000);undoCleanup.unref();
 const recordUndo=data=>{const id=randomUUID();db.prepare('INSERT INTO undos VALUES(?,?)').run(id,JSON.stringify({...data,expires:Date.now()+60000}));return id;};
 const send=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
 const text=(s,max=20000)=>String(s??'').trim().slice(0,max);
@@ -33,6 +38,7 @@ function preview(body,lists){
 }
 const server=createServer(async(req,res)=>{try{
   const url=new URL(req.url,'http://localhost');
+  if(!authorized(req)&&url.pathname!=='/api/health'){res.writeHead(401,{'WWW-Authenticate':'Basic realm="Simmer"','Cache-Control':'no-store'});return res.end('Sign in to Simmer.');}
   if(url.pathname.startsWith('/catalogue-images/')&&req.method==='GET'){
     if(!localImageExists(DATA,url.pathname))return send(res,404,{error:'Photo not found'});
     const file=join(DATA,url.pathname.slice(1));res.writeHead(200,{'Content-Type':{'.jpg':'image/jpeg','.png':'image/png','.webp':'image/webp'}[extname(file)],'Cache-Control':'public,max-age=31536000,immutable','X-Content-Type-Options':'nosniff'});return res.end(await readFile(file));
@@ -99,5 +105,5 @@ const server=createServer(async(req,res)=>{try{
   const file=resolve(ROOT,'.'+decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname));if(!file.startsWith(ROOT+'/'))return send(res,404,{error:'Not found'});
   try{const content=await readFile(file);res.writeHead(200,{'Content-Type':({'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.webmanifest':'application/manifest+json','.png':'image/png'})[extname(file)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});res.end(content);}catch{return send(res,404,{error:'Not found'});}
 }catch(e){send(res,e.status||400,{error:e.message||'Something went wrong.'});}});
-server.listen(PORT,()=>{console.log(`Simmer on http://localhost:${PORT}`);setImmediate(()=>catalogueFilters(catalogue));});
+server.listen(PORT,HOST,()=>{console.log(`Simmer on http://${HOST}:${PORT}`);setImmediate(()=>catalogueFilters(catalogue));});
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>server.close(()=>{catalogue.close();db.close();process.exit(0);}));

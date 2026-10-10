@@ -10,7 +10,7 @@ export function setupFilterPickers(){
  dialog.innerHTML='<div class="filter-picker-head"><h2 id="filter-picker-title" tabindex="-1"></h2><button type="button" class="filter-picker-close" aria-label="Close filter picker">×</button></div><div class="filter-picker-search"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input type="search" id="filter-picker-query" aria-label="Search cuisines" placeholder="Find a cuisine…" autocomplete="off"></div><div id="filter-picker-options"></div>';
  dialog.insertAdjacentHTML('beforeend','<div class="filter-picker-footer"><button type="button" class="filter-picker-reset">Clear selection</button><button type="button" class="primary filter-picker-done">Done</button></div>');
  document.body.append(dialog);const query=dialog.querySelector('input'),list=dialog.querySelector('#filter-picker-options'),search=dialog.querySelector('.filter-picker-search');
- const chips=document.createElement('div');chips.id='active-filters';chips.setAttribute('aria-label','Active filters');document.querySelector('.search-filters').after(chips);
+ const chips=document.createElement('div');chips.id='active-filters';chips.setAttribute('aria-label','Active filters');document.querySelector('#filter-panel').after(chips);
  const titleOf=select=>select.closest('label').firstChild.textContent.trim();
  const labelOf=(select,value)=>optionNames[select.id]&&value?optionNames[select.id][value]:value||select.options[0]?.textContent||'Any';
  function choose(value){if(!active)return;const chosen=new Set(selectedFilterValues(active));if(!value)chosen.clear();else if(chosen.has(value))chosen.delete(value);else chosen.add(value);setFilterValues(active,[...chosen]);sync();renderOptions();[...list.querySelectorAll('button')].find(b=>b.dataset.value===value)?.focus();}
@@ -44,7 +44,9 @@ export function setupFilterPickers(){
   chips.replaceChildren();for(const select of selects){const trigger=triggers.get(select),values=selectedFilterValues(select),label=values.length?labelOf(select,values[0])+(values.length>1?' +'+(values.length-1):''):labelOf(select,'');trigger.replaceChildren();const name=document.createElement('span');name.textContent=label;trigger.append(name);trigger.insertAdjacentHTML('beforeend',chevron);trigger.classList.toggle('selected',!!values.length);trigger.setAttribute('aria-label',titleOf(select)+': '+values.map(v=>labelOf(select,v)).join(', '));
    for(const value of values){const label=labelOf(select,value),chip=document.createElement('button');chip.type='button';chip.className='active-filter-chip';chip.setAttribute('aria-label','Remove '+titleOf(select)+' filter: '+label);const text=document.createElement('span');text.textContent=label;const x=document.createElement('span');x.textContent='×';x.setAttribute('aria-hidden','true');chip.append(text,x);chip.onclick=()=>{setFilterValues(select,selectedFilterValues(select).filter(v=>v!==value));sync();trigger.focus();select.dispatchEvent(new Event('change',{bubbles:true}));};chips.append(chip);}
   }
-  document.querySelector('#clear-filters').hidden=!selects.some(s=>selectedFilterValues(s).length);
+  const count=selects.reduce((total,select)=>total+selectedFilterValues(select).length,0);
+  const badge=document.querySelector('#filter-count');badge.hidden=!count;badge.textContent=count?`${count} selected`:'';
+  document.querySelector('#clear-filters').hidden=!count;
  }
  sync();return {sync};
 }

@@ -14,7 +14,7 @@ Open http://localhost:4195. Run tests with `npm test`.
 
 ## Features
 
-- Search using multi-select filters for main ingredient, cuisine, dish type, ingredient count and estimated time. Search cuisines, browse popular choices first, and remove individual selections using active filter chips. Option counts come from the local catalogue and respond to the other filters. Plain browsing leaves out desserts, drinks and sauces; a filter or text search can still find them.
+- Search using multi-select filters for main ingredient, cuisine, dish type, ingredient count and estimated time. The five filters stay behind a Filters button, with active selections visible as chips. Plain browsing shows meals; breads, sides, snacks, desserts, drinks and sauces remain available through search and filters.
 - Rotate adventurous dish ideas that have matches in the local catalogue.
 - Fill unknown cuisine and dish-type tags conservatively with `node scripts/classify-unknown.mjs data` (preview), then add `--apply` to back up and update the catalogue. Existing classifications and recipe content are preserved.
 - For a cuisine-only pass, add `--cuisine-only`; add `--everyday` to put remaining unclassifiable recipes in “Everyday / international” without claiming a regional origin. Cuisine inference uses recognised dish names and combined ingredient clues, not a single generic ingredient.
@@ -24,19 +24,21 @@ Open http://localhost:4195. Run tests with `npm test`.
 - Remove unwanted recipes from the shared search collection with confirmation. Local catalogue/search rows are deleted, removed IDs are remembered to prevent re-imports or MealDB reappearance, and saved copies/calendar meals are preserved. Photos remain for saved copies and backups.
 - Import recipe links or add your own from Saved.
 - Plan lunch and dinner, including quick name-only meals. Hold to edit, delete, drag or swap meals.
-- Save recipes together, adjust portions and remove ingredients already in your cupboard.
+- Save recipes together and adjust known portions. When the source gives no serving count, the controls scale multiples of the original recipe instead of claiming a number of portions. Choose which ingredients to include during shopping review.
 - Review shopping before sending to a shared Tally list. Retries cannot apply the same send twice.
 - Undo meal removals and recipe deletions.
 
 ## Configuration
 
 - `PORT`: defaults to 4195.
+- `HOST`: defaults to `127.0.0.1` (this computer only). Set to `0.0.0.0` only when remote access is needed.
+- `SIMMER_PASSWORD`: required whenever `HOST` allows remote connections. The browser prompts for username `simmer` and this password. Use HTTPS at the reverse proxy; Basic authentication alone does not encrypt traffic.
 - `DATA_DIR`: defaults to `data`; SQLite state must be preserved and backed up.
 - `TALLY_URL`: defaults to http://127.0.0.1:4188. Requires Tally's Simmer integration endpoint.
 - `TALLY_COOKIE`: optional authenticated Tally session; never commit it.
 - `MEALDB_API_KEY`: optional key for the one-time MealDB import. The default development key is `1`; check [provider terms](https://www.themealdb.com/terms_of_use.php) before public release.
 
-Search uses the local catalogue, including imported Epicurious, Tasty and TheMealDB recipes and photos. It does not contact TheMealDB while searching or opening a recipe. TheMealDB import uses the official API, retains source attribution, skips duplicate titles and previously removed recipes, and can be rerun to add new meals. These datasets do not provide reliable serving counts, so portions must be confirmed before scaling. Instructions retain the original detail, displayed as numbered steps. Name-only meals have no shopping ingredients.
+Search uses the local catalogue, including imported Epicurious, Tasty and TheMealDB recipes and photos. It does not contact TheMealDB while searching or opening a recipe. TheMealDB import uses the official API, retains source attribution, skips duplicate titles and previously removed recipes, and can be rerun to add new meals. These datasets do not provide reliable serving counts, so 1× means the source's original ingredient amounts, not one person's portion. The method text is kept verbatim; when ingredients are scaled, check its written amounts against the adjusted ingredient list. Name-only meals have no shopping ingredients.
 
 To import or update TheMealDB recipes on this computer, run with Node 24:
 
@@ -72,4 +74,4 @@ node scripts/merge-tasty.mjs /path/to/staging data
 
 Staging downloads only the dataset's matching BuzzFeed photos, checks JPEG dimensions, skips existing titles and retains original ingredient quantities (not inconsistent metric conversions). Rerunning staging reuses completed downloads. For a diagnosed DNS outage, `--photo-ip` accepts a verified public address for the photo host while keeping normal hostname/TLS verification; it does not change system DNS. Merging backs up the catalogue, preserves saved recipes/calendar and rejects duplicate names, contents or photos. The repository's MIT label does not establish permission for the underlying Tasty content; do not redistribute these datasets without checking source rights.
 
-Docker configuration uses a separate persistent volume. Deploy with `docker compose -f compose.server.yml up -d --build` after backing up the `simmer-data` volume. The image has a health check on `/api/health`. On the first start after an upgrade, Simmer backs up `/data/catalogue.db` to `catalogue-before-manual-classification-<timestamp>.db` and then applies the reviewed tags; later starts change nothing. No new environment variables are needed. This app currently has no authentication: do not expose it publicly until access control is configured. Offline editing is not supported.
+Docker configuration uses a separate persistent volume. Set a strong `SIMMER_PASSWORD` in your deployment environment, then deploy with `docker compose -f compose.server.yml up -d --build` after backing up the `simmer-data` volume. The container binds to `0.0.0.0` and requires the password for all app and data requests except `/api/health`; terminate HTTPS at the reverse proxy. The image has a health check on `/api/health`. On the first start after an upgrade, Simmer backs up `/data/catalogue.db` to `catalogue-before-manual-classification-<timestamp>.db` and then applies the reviewed tags; later starts change nothing. Offline editing is not supported.

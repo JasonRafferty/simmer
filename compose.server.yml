@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     environment:
       TALLY_URL: http://tally:80
+      HOST: 0.0.0.0
+      SIMMER_PASSWORD: ${SIMMER_PASSWORD:?Set SIMMER_PASSWORD before deploying Simmer}
     volumes:
       - simmer-data:/data
     networks:
