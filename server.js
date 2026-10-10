@@ -7,6 +7,7 @@ import {fetchRecipePage,extractRecipe} from './lib/import.js';
 import {combine,key,quantity,mergeQuantity} from './lib/ingredients.js';
 import {getRecipe,searchRecipes} from './lib/discovery.js';
 import {combineDiscovery} from './lib/combined-discovery.js';
+import {surpriseRecipe} from './lib/catalogue.js';
 import {openCatalogue,searchCatalogue,getCatalogueRecipe,catalogueStatus,catalogueFilters,catalogueIdeas,localImageExists,removedRecipeIds,removeCatalogueRecipe} from './lib/catalogue.js';
 const PORT=Number(process.env.PORT||4195), DATA=resolve(process.env.DATA_DIR||'data'),ROOT=resolve('public');
 await mkdir(DATA,{recursive:true});const catalogue=openCatalogue(DATA);
@@ -55,6 +56,7 @@ const server=createServer(async(req,res)=>{try{
       return send(res,200,catalogueFilters(catalogue));
     }
     if(url.pathname==='/api/discover/ideas'&&req.method==='GET')return send(res,200,{ideas:catalogueIdeas(catalogue)});
+    if(url.pathname==='/api/discover/surprise'&&req.method==='GET')return send(res,200,{recipe:surpriseRecipe(catalogue,Object.fromEntries(['category','cuisine','style'].map(key=>[key,url.searchParams.getAll(key).filter(Boolean)])))});
     if(url.pathname==='/api/discover/remove'&&req.method==='POST'){removeCatalogueRecipe(catalogue,text(body.providerId,80));return send(res,200,{removed:true});}
     if(url.pathname==='/api/discover/recipe'&&req.method==='GET'){const id=url.searchParams.get('id')??'';if(/^(?:epic|nlg|tasty)-/.test(id)){const recipe=getCatalogueRecipe(catalogue,id);if(!localImageExists(DATA,recipe.image))throw Error('This recipe photo is unavailable.');return send(res,200,recipe);}return send(res,200,await getRecipe(id));}
     if(url.pathname==='/api/recipe'&&req.method==='POST'){
