@@ -32,7 +32,7 @@ test('facets report popular cuisines and time ranges',()=>{
 });
 
 test('surprise prefers well-stocked meal combinations, avoids recent picks and respects filters',()=>{
- const rows=[...Array.from({length:8},(_,i)=>recipe('t'+i,'T'+i)),...Array.from({length:8},(_,i)=>recipe('m'+i,'M'+i,{cuisines:['Mexican'],styles:['Wraps & tacos']})),recipe('x','Rare',{cuisines:['Uzbek'],styles:['Rice dishes']}),...Array.from({length:8},(_,i)=>recipe('d'+i,'D'+i,{cuisines:['French'],styles:['Drinks']})),...Array.from({length:8},(_,i)=>recipe('e'+i,'E'+i,{cuisines:['Everyday / international'],styles:['Stews']}))];
+ const rows=[...Array.from({length:8},(_,i)=>recipe('t'+i,'T'+i)),...Array.from({length:8},(_,i)=>recipe('m'+i,'M'+i,{cuisines:['Mexican'],styles:['Wraps & tacos']})),recipe('x','Rare',{cuisines:['Uzbek'],styles:['Rice dishes']}),...Array.from({length:9},(_,i)=>recipe('p'+i,'Pie'+i,{cuisines:['Italian'],categories:['Chocolate'],styles:['Pies & pastry','Desserts & baking']})),...Array.from({length:8},(_,i)=>recipe('d'+i,'D'+i,{cuisines:['French'],styles:['Drinks']})),...Array.from({length:8},(_,i)=>recipe('e'+i,'E'+i,{cuisines:['Everyday / international'],styles:['Stews']}))];
  const index=buildIndex(rows);
  for(let i=0;i<30;i++){const pick=surpriseIndex(index);assert.ok(['Thai','Mexican'].includes(pick.filters.cuisine));assert.equal(pick.count,8);}
  for(let i=0;i<10;i++)assert.equal(surpriseIndex(index,{},{avoid:['Thai']}).filters.cuisine,'Mexican');
