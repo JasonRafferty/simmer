@@ -8,12 +8,12 @@ import {combine,key,quantity,mergeQuantity} from './lib/ingredients.js';
 import {getRecipe,searchRecipes} from './lib/discovery.js';
 import {combineDiscovery} from './lib/combined-discovery.js';
 import {openCatalogue,configureCatalogue,searchCataloguePage,surpriseCatalogue,pantryCatalogue,getCatalogueRecipe,catalogueStatus,catalogueFilters,catalogueIdeas,localImageExists,removedRecipeIds,removeCatalogueRecipe} from './lib/catalogue.js';
-import {manualClassification,applyManualClassification} from './lib/manual-classification.js';
+import {manualClassification,classificationChanges,applyClassificationChanges} from './lib/manual-classification.js';
 import {estimateMinutes} from './lib/catalogue-index.js';
 const PORT=Number(process.env.PORT||4195), DATA=resolve(process.env.DATA_DIR||'data'),ROOT=resolve('public');
 await mkdir(DATA,{recursive:true});const catalogue=openCatalogue(DATA);
 // Reviewed tags only replace placeholders, so applying them on every start is safe and survives retagging.
-{const manual=manualClassification(),applied=applyManualClassification(catalogue,manual);if(applied)console.log(`Applied reviewed tags to ${applied} catalogue recipes`);configureCatalogue(catalogue,{hidden:new Set(manual.hidden),hasImage:image=>localImageExists(DATA,image)});}
+{const manual=manualClassification(),changes=classificationChanges(catalogue,manual);if(changes.length){const backup=join(DATA,'catalogue-before-manual-classification-'+Date.now()+'.db');catalogue.prepare('VACUUM INTO ?').run(backup);applyClassificationChanges(catalogue,changes);console.log(`Applied reviewed tags to ${changes.length} catalogue recipes (backup: ${backup})`);}configureCatalogue(catalogue,{hidden:new Set(manual.hidden),hasImage:image=>localImageExists(DATA,image)});}
 const filterKeys=['category','cuisine','style','effort','time'],filtersFrom=params=>Object.fromEntries(filterKeys.map(key=>[key,params.getAll(key).filter(Boolean).slice(0,40)]));
 await mkdir(DATA,{recursive:true});const db=new DatabaseSync(join(DATA,'simmer.db'));db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS recipes(id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS meals(slot TEXT PRIMARY KEY, recipe TEXT NOT NULL, servings REAL NOT NULL); CREATE TABLE IF NOT EXISTS sends(id TEXT PRIMARY KEY, data TEXT NOT NULL);');
 if(!db.prepare('PRAGMA table_info(meals)').all().some(c=>c.name==='name'))db.exec("ALTER TABLE meals ADD COLUMN name TEXT NOT NULL DEFAULT ''");
