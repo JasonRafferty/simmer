@@ -12,6 +12,15 @@ test('main ingredients separate meat, fish and shellfish without matching graham
  assert.deepEqual(mainIngredients({name:'Prawn curry',ingredients:['prawns','curry paste']}),['Seafood']);
  assert.deepEqual(mainIngredients({name:'Roast lamb',ingredients:['lamb','potatoes']}),['Lamb']);
  assert.equal(effortMatches({},'5'),false);assert.equal(effortMatches({ingredientCount:5},'5'),true);assert.equal(effortMatches({ingredientCount:6},'5'),false);
+ assert.equal(effortMatches({ingredientCount:6},'6-10'),true);assert.equal(effortMatches({ingredientCount:10},'6-10'),true);assert.equal(effortMatches({ingredientCount:11},'6-10'),false);assert.equal(effortMatches({ingredientCount:11},'11+'),true);assert.equal(effortMatches({ingredientCount:12},['5','11+']),true);assert.equal(effortMatches({ingredientCount:7},['5','11+']),false);
+});
+test('multiple choices use OR within filters and AND between filters',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'simmer-multi-'));const db=openCatalogue(dir);t.after(async()=>{db.close();await rm(dir,{recursive:true,force:true});});
+ for(const [i,cuisine,category,style,count]of [[1,'Italian','Chicken','Pasta dishes',4],[2,'Mexican','Chicken','Wraps & tacos',8],[3,'Japanese','Fish','Noodles',12],[4,'Italian','Beef','Stews',12]]){const recipe={providerId:'epic-'+String(i).repeat(24),name:'Meal '+i,ingredients:['Ingredient '+i],instructions:'Cook safely for twenty minutes. '+i,image:'/catalogue-images/'+String(i).repeat(64)+'.jpg',categories:[category],cuisines:[cuisine],styles:[style],ingredientCount:count};publishRecipe(db,recipe);}
+ assert.equal(searchCatalogue(db,'',{cuisine:['Italian','Mexican']}).length,3);
+ assert.equal(searchCatalogue(db,'',{cuisine:['Italian','Mexican'],category:['Chicken'],style:['Pasta dishes','Wraps & tacos'],effort:['5','6-10']}).length,2);
+ assert.equal(searchCatalogue(db,'',{effort:['11+']}).length,2);assert.equal(searchCatalogue(db,'',{effort:['5','11+']}).length,3);
+ const facets=catalogueFilters(db,{cuisine:['Italian','Mexican'],effort:['5','6-10']});assert.deepEqual(facets.categories,['Chicken']);assert.deepEqual(facets.efforts,{'5':1,'6-10':1,'11+':1});
 });
 test('four filters intersect before the result limit, for both local sources; facets and ideas have matches',async t=>{
  const dir=await mkdtemp(join(tmpdir(),'simmer-filters-'));const db=openCatalogue(dir);t.after(async()=>{db.close();await rm(dir,{recursive:true,force:true});});

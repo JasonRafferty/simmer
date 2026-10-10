@@ -14,7 +14,7 @@ Open http://localhost:4195. Run tests with `npm test`.
 
 ## Features
 
-- Search using four combined filters: main ingredient, cuisine, dish type and effort (up to five ingredient entries, including seasonings). Options show local counts and respond to the other filters. Unknown cuisine is labelled honestly, not guessed.
+- Search using four multi-select filters: main ingredient, cuisine, dish type and ingredient count (5 or fewer, 6–10, or 11+). Search cuisines, browse popular choices first, and remove individual selections using active filter chips. Options show local counts and respond to the other filters.
 - Rotate adventurous dish ideas that have matches in the local catalogue.
 - Remove unwanted recipes from the shared search collection with confirmation. Local catalogue/search rows are deleted, removed IDs are remembered to prevent re-imports or MealDB reappearance, and saved copies/calendar meals are preserved. Photos remain for saved copies and backups.
 - Import recipe links or add your own from Saved.

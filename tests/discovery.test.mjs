@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mealRecipe,searchRecipes,getRecipe,discoveryFilters} from '../lib/discovery.js';
+test('MealDB unions multiple cuisines and intersects other selected filters',async()=>{
+ const original=globalThis.fetch;globalThis.fetch=async url=>{const u=new URL(url),ids=u.searchParams.get('a')==='MultiItalian'?['401']:u.searchParams.get('a')==='MultiMexican'?['402']:['401','402','403'];return {ok:true,json:async()=>({meals:ids.map(id=>({idMeal:id,strMeal:'Dish '+id,strMealThumb:'https://example.com/'+id+'.jpg'}))})};};
+ try{const result=await searchRecipes('multiselect unique test',{cuisine:['MultiItalian','MultiMexican'],category:['MultiChicken']});assert.deepEqual(result.map(r=>r.providerId),['401','402']);}finally{globalThis.fetch=original;}
+});
 test('filters browse without a query, intersect, and exclude empty cuisines',async()=>{
  const original=globalThis.fetch;globalThis.fetch=async url=>{const u=new URL(url);const empty=u.searchParams.get('a')==='Thai';const ids=u.searchParams.has('a')?['802']:['801','802'];return {ok:true,json:async()=>({meals:empty?null:ids.map(id=>({idMeal:id,strMeal:'Dish '+id}))})};};
  try{const filters=await discoveryFilters();assert.ok(filters.cuisines.includes('Italian'));assert.ok(!filters.cuisines.includes('Thai'));assert.ok(filters.cuisines.length<=10);assert.ok(filters.categories.length<=8);const category=await searchRecipes('',{category:'Pasta'});assert.deepEqual(category.map(r=>r.providerId),['801','802']);const both=await searchRecipes('',{category:'Pasta',cuisine:'Italian'});assert.deepEqual(both.map(r=>r.providerId),['802']);}finally{globalThis.fetch=original;}

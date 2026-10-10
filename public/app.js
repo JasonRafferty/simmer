@@ -1,5 +1,6 @@
 import {scaled,combine,quantity,parse,format,rebuildRows,rowKey} from '/ingredients.js';
 import {instructionSteps} from '/steps.js';
+import {setupFilterPickers,selectedFilterValues,setFilterValues} from './filter-picker.js';
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let state={recipes:[],meals:[]},offset=0,pickSlot=null,detailRecipe=null,detailServings=2,moving=null,shoppingMeals=[],shoppingRows=[],preview=null,requestId=null,busy=false;
 const localDate=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -88,20 +89,22 @@ $('#shop-recipe').onclick=()=>action(async()=>{await saveSelected();$('#detail')
 const failedPhotos=new Set();let discovery=[],searchSequence=0;
 $('#discover-form').insertAdjacentHTML('afterend','<div class="search-filters"><label>Main ingredient<select id="discover-category"><option value="">Any ingredient</option></select></label><label>Cuisine<select id="discover-cuisine"><option value="">Any cuisine</option></select></label><label>Dish type<select id="discover-style"><option value="">Any dish type</option></select></label><label>Effort<select id="discover-effort"><option value="">Any effort</option><option value="5">≤ 5 ingredients</option></select></label></div><button type="button" class="text-button" id="clear-filters">Clear filters</button>');
 $('#discover-query').required=false;
+const filterPickers=setupFilterPickers();
 function applyFilters(filters){
  if(!filters)return;
  const common=new Set(['British','Italian','Indian','Chinese','Mexican','Thai','Japanese','Greek','French','Spanish','American','Korean','Vietnamese']);
  for(const [field,id,label]of [['categories','category','Any ingredient'],['cuisines','cuisine','Any cuisine'],['styles','style','Any dish type']]){
-  const select=$('#discover-'+id),selected=select.value;select.replaceChildren(new Option(label,''));
+  const select=$('#discover-'+id),selected=selectedFilterValues(select);select.replaceChildren(new Option(label,''));
   const values=filters[field]??[];
   const groups=field==='cuisines'?[['Popular cuisines',values.filter(x=>common.has(x))],['More to explore',values.filter(x=>!common.has(x))]]:[[null,values]];
   for(const [name,items]of groups){if(!items.length)continue;const group=name?document.createElement('optgroup'):select;if(name)group.label=name;for(const value of items)group.append(new Option(value+' · '+(filters.counts?.[field]?.[value]??0).toLocaleString(),value));if(name)select.append(group);}
-  if(selected&&!values.includes(selected))select.add(new Option(selected+' · 0 local matches',selected));select.value=selected;
+  for(const value of selected)if(!values.includes(value))select.add(new Option(value+' · 0 local matches',value));setFilterValues(select,selected);
  }
- const effort=$('#discover-effort'),selected=effort.value;effort.replaceChildren(new Option('Any effort',''),new Option('≤ 5 ingredients · '+(filters.effortCount??0).toLocaleString(),'5'));effort.value=selected;
+ const effort=$('#discover-effort'),selected=selectedFilterValues(effort);effort.replaceChildren(new Option('Any ingredient count',''),...Object.entries({'5':'≤ 5 ingredients','6-10':'6–10 ingredients','11+':'11+ ingredients'}).map(([value,label])=>new Option(label+' · '+(filters.efforts?.[value]??0).toLocaleString(),value)));setFilterValues(effort,selected);
+ filterPickers.sync();
 }
-$('#clear-filters').onclick=()=>{for(const key of ['category','cuisine','style','effort'])$('#discover-'+key).value='';discover($('#discover-query').value);};
-function persistDiscovery(){try{sessionStorage.setItem('simmer-discovery',JSON.stringify({version:'filters-v2',query:$('#discover-query').value,category:$('#discover-category').value,cuisine:$('#discover-cuisine').value,style:$('#discover-style').value,effort:$('#discover-effort').value,recipes:discovery,scroll:discoverScroll}));}catch{}}
+$('#clear-filters').onclick=()=>{for(const key of ['category','cuisine','style','effort'])$('#discover-'+key).value='';filterPickers.sync();discover($('#discover-query').value);};
+function persistDiscovery(){try{sessionStorage.setItem('simmer-discovery',JSON.stringify({version:'filters-v2',query:$('#discover-query').value,category:selectedFilterValues($('#discover-category')),cuisine:selectedFilterValues($('#discover-cuisine')),style:selectedFilterValues($('#discover-style')),effort:selectedFilterValues($('#discover-effort')),recipes:discovery,scroll:discoverScroll}));}catch{}}
 function renderDiscovery(){
   $('#discover-results').innerHTML=discovery.filter(r=>!failedPhotos.has(r.providerId)).map(r=>{const saved=state.recipes.some(s=>s.providerId===r.providerId);return `<button class="recipe-card" data-discover="${r.providerId}"><div class="recipe-cover">${r.image?`<img src="${esc(r.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:'♨'}${saved?'<span class="saved-badge">✓ Already saved</span>':''}</div><div class="copy"><b>${esc(r.name)}</b><small>${esc([r.cuisine,r.style||r.category].filter(Boolean).join(' · ')||'See recipe →')}</small></div></button>`;}).join('');
 }
@@ -110,14 +113,15 @@ $('#detail').addEventListener('close',()=>{if(currentTab==='discover')requestAni
 let savedDiscovery;try{savedDiscovery=JSON.parse(sessionStorage.getItem('simmer-discovery')||'null');}catch{}
 if(savedDiscovery?.version!=='filters-v2')savedDiscovery=null;
 if(savedDiscovery){discovery=savedDiscovery.recipes??[];$('#discover-query').value=savedDiscovery.query??'';discoverScroll=savedDiscovery.scroll??0;renderDiscovery();requestAnimationFrame(()=>scrollTo({top:discoverScroll,behavior:'instant'}));}
-api('discover/filters').then(filters=>{for(const [id,key]of [['discover-category','category'],['discover-cuisine','cuisine'],['discover-style','style'],['discover-effort','effort']])if(savedDiscovery?.[key])$('#'+id).add(new Option(savedDiscovery[key],savedDiscovery[key],true,true));applyFilters(filters);}).catch(()=>toast('Search filters could not load.'));
-for(const id of ['discover-category','discover-cuisine','discover-style','discover-effort'])$('#'+id).onchange=()=>discover($('#discover-query').value);
+api('discover/filters').then(filters=>{for(const key of ['category','cuisine','style','effort']){const select=$('#discover-'+key);for(const value of [].concat(savedDiscovery?.[key]??[]))if(value)select.add(new Option(value,value,true,true));}applyFilters(filters);}).catch(()=>toast('Search filters could not load.'));
+for(const id of ['discover-category','discover-cuisine','discover-style','discover-effort'])$('#'+id).onchange=()=>{filterPickers.sync();discover($('#discover-query').value);};
 let searchWatch;
 async function discover(query,retry=0){
   clearTimeout(searchWatch);
-  const sequence=++searchSequence;const q=query.trim();const category=$('#discover-category').value,cuisine=$('#discover-cuisine').value,style=$('#discover-style').value,effort=$('#discover-effort').value;if(q.length===1)return toast('Enter at least two letters or clear the search to browse.');
+  const sequence=++searchSequence;const q=query.trim();const category=selectedFilterValues($('#discover-category')),cuisine=selectedFilterValues($('#discover-cuisine')),style=selectedFilterValues($('#discover-style')),effort=selectedFilterValues($('#discover-effort'));if(q.length===1)return toast('Enter at least two letters or clear the search to browse.');
   $('#discover-query').value=q;$('#discover-status').textContent='Looking for something delicious…';if(!retry)$('#discover-results').innerHTML='';$('#discover-form button').disabled=true;
-  try{const result=await api('discover?'+new URLSearchParams({q,category,cuisine,style,effort}));if(sequence!==searchSequence)return;discovery=result.recipes;applyFilters(result.filters);
+  const params=new URLSearchParams({q});for(const [key,values]of Object.entries({category,cuisine,style,effort}))for(const value of values)params.append(key,value);
+  try{const result=await api('discover?'+params);if(sequence!==searchSequence)return;discovery=result.recipes;applyFilters(result.filters);
     $('#discover-status').textContent=discovery.length?'':'No recipes match. Try another search or clear the filters.';
     if(result.checking){$('#discover-status').textContent+=' · checking more source recipes for photos…';if(retry<8)searchWatch=setTimeout(()=>{if(currentTab==='discover')discover(q,retry+1);},8000);}else if(result.warning)$('#discover-status').textContent+=' · online search unavailable; showing your server catalogue.';
     if(!retry)discoverScroll=0;renderDiscovery();persistDiscovery();
@@ -127,7 +131,7 @@ $('#discover-form').onsubmit=e=>{e.preventDefault();discover($('#discover-query'
 let ideaPool=[];
 function rotateIdeas(){const previous=new Set([...document.querySelectorAll('.search-chips [data-query]')].map(b=>b.dataset.query));const choices=ideaPool.filter(x=>!previous.has(x));for(let i=choices.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[choices[i],choices[j]]=[choices[j],choices[i]];}$('.search-chips').innerHTML=choices.slice(0,4).map(x=>`<button data-query="${esc(x)}">${esc(x)}</button>`).join('')+'<button data-more-ideas aria-label="Show more adventurous recipe ideas">↻ More ideas</button>';}
 api('discover/ideas').then(({ideas})=>{ideaPool=ideas;rotateIdeas();}).catch(()=>{$('.search-chips').innerHTML='';});
-$('.search-chips').onclick=e=>{const b=e.target.closest('[data-query]');if(b){$('#discover-category').value='';$('#discover-cuisine').value='';$('#discover-style').value='';$('#discover-effort').value='';discover(b.dataset.query);}if(e.target.closest('[data-more-ideas]'))rotateIdeas();};
+$('.search-chips').onclick=e=>{const b=e.target.closest('[data-query]');if(b){$('#discover-category').value='';$('#discover-cuisine').value='';$('#discover-style').value='';$('#discover-effort').value='';filterPickers.sync();discover(b.dataset.query);}if(e.target.closest('[data-more-ideas]'))rotateIdeas();};
 $('#discover-results').onclick=e=>{const card=e.target.closest('[data-discover]');if(card)action(async()=>{discoverScroll=scrollY;persistDiscovery();const saved=state.recipes.find(r=>r.providerId===card.dataset.discover);detailRecipe=saved??await api('discover/recipe?id='+encodeURIComponent(card.dataset.discover));detailServings=2;detailSlot=null;detailExcluded=new Set();renderDetail();show('detail');});};
 $('#shop-week').onclick=()=>action(async()=>{const week=new Set(dates().map(localDate));const meals=state.meals.filter(m=>m.recipe&&week.has(m.slot.slice(0,10))).sort((a,b)=>a.slot.localeCompare(b.slot));if(!meals.length)return toast('Choose a saved recipe to shop its ingredients. Name-only meals have no ingredients.');for(const id of new Set(meals.map(m=>m.recipe)))await confirmPortions(state.recipes.find(r=>r.id===id));await openShopping(meals.map(m=>({...m,label:`${new Date(m.slot.slice(0,10)+'T12:00:00').toLocaleDateString('en-GB',{weekday:'short'})} ${m.slot.split(':')[1]} · ${state.recipes.find(r=>r.id===m.recipe)?.name}`,selected:true})),'Weekly meals');});
 let shoppingOverrides=new Map();

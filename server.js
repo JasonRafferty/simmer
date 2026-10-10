@@ -42,11 +42,11 @@ const server=createServer(async(req,res)=>{try{
     if(url.pathname==='/api/state'&&req.method==='GET')return send(res,200,state());
     if(url.pathname==='/api/catalogue/status'&&req.method==='GET')return send(res,200,catalogueStatus(catalogue));
     if(url.pathname==='/api/discover'&&req.method==='GET'){
-      const query=url.searchParams.get('q')??'',filters={category:url.searchParams.get('category')??'',cuisine:url.searchParams.get('cuisine')??'',style:url.searchParams.get('style')??'',effort:url.searchParams.get('effort')??''};
+      const query=url.searchParams.get('q')??'',filters=Object.fromEntries(['category','cuisine','style','effort'].map(key=>[key,url.searchParams.getAll(key).filter(Boolean)]));
       const seeds={'Curries':'curry','Pasta dishes':'pasta','Salads':'salad','Soups':'soup','Stews':'stew','Noodles':'noodles','Rice dishes':'rice','Grilled & BBQ':'grilled','Pizza':'pizza','Wraps & tacos':'tacos','Pies & pastry':'pie','Sandwiches & burgers':'burger'};
-      const remoteQuery=query||(!filters.category&&!filters.cuisine?seeds[filters.style]??'':'');
-      const online=url.searchParams.get('catalogueOnly')!=='1'&&!filters.effort&&(remoteQuery.trim().length>=2||filters.category||filters.cuisine);
-      const remote=online?await searchRecipes(remoteQuery,{...filters,category:filters.category==='Fish'?'Seafood':filters.category}).then(recipes=>({recipes})).catch(()=>({recipes:[],warning:'TheMealDB is temporarily unavailable. Local recipes are still available.'})):{recipes:[]};
+      const remoteQuery=query||(!filters.category.length&&!filters.cuisine.length?seeds[filters.style[0]]??'':'');
+      const online=url.searchParams.get('catalogueOnly')!=='1'&&!filters.effort.length&&(remoteQuery.trim().length>=2||filters.category.length||filters.cuisine.length);
+      const remote=online?await searchRecipes(remoteQuery,{...filters,category:filters.category.map(value=>value==='Fish'?'Seafood':value)}).then(recipes=>({recipes})).catch(()=>({recipes:[],warning:'TheMealDB is temporarily unavailable. Local recipes are still available.'})):{recipes:[]};
       const local=searchCatalogue(catalogue,query,filters).filter(r=>localImageExists(DATA,r.image));
       const removed=removedRecipeIds(catalogue);
       return send(res,200,{recipes:combineDiscovery(local,remote.recipes.filter(r=>!removed.has(r.providerId)),filters),filters:catalogueFilters(catalogue,filters,query),warning:remote.warning,catalogueReady:catalogueStatus(catalogue).ready,version:'filters-v2'});
