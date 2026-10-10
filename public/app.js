@@ -210,4 +210,23 @@ let catalogueCount=-1;
 async function refreshCatalogue(){try{const s=await api('catalogue/status');if(s.ready!==catalogueCount){catalogueCount=s.ready;if(!$('#discover-query').value&&!FILTERS.some(x=>$('#discover-'+x).value))await discover('');}}catch{}}
 refreshCatalogue();setInterval(()=>{if(!document.hidden)refreshCatalogue();},15000);
 $('#discover-results').addEventListener('error',e=>{const card=e.target.closest('[data-discover]');if(card){failedPhotos.add(card.dataset.discover);card.hidden=true;}},true);
+// Install as an app, like Tally: Chrome/Android get a one-tap install, iPhone gets Share → Add to Home Screen.
+const IS_IOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1),INSTALL_SNOOZE_DAYS=14;
+const isInstalledApp=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+let installEvent=null;
+const snoozed=()=>{try{return Date.now()<Number(localStorage.getItem('simmer-install-snooze')||0);}catch{return false;}};
+function showInstall(){
+  if(isInstalledApp()||snoozed())return;
+  if(installEvent)$('#install-go').hidden=false;
+  else if(IS_IOS){$('#install-go').hidden=true;$('#install-note').innerHTML='Tap <svg class="ios-share" viewBox="0 0 24 24" aria-label="Share"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2"/></svg> then “Add to Home Screen”';}
+  else return;
+  $('#install').hidden=false;
+}
+function hideInstall(snoozeDays){$('#install').hidden=true;if(snoozeDays)try{localStorage.setItem('simmer-install-snooze',String(Date.now()+snoozeDays*86400000));}catch{}}
+addEventListener('beforeinstallprompt',event=>{event.preventDefault();installEvent=event;setTimeout(showInstall,1200);});
+$('#install-go').onclick=async()=>{if(!installEvent)return;installEvent.prompt();const {outcome}=await installEvent.userChoice;installEvent=null;hideInstall(outcome==='accepted'?0:INSTALL_SNOOZE_DAYS);};
+$('#install-close').onclick=()=>hideInstall(INSTALL_SNOOZE_DAYS);
+addEventListener('appinstalled',()=>{hideInstall(0);toast('Installed · open Simmer from your home screen');});
+if(IS_IOS)setTimeout(showInstall,1500);
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
 await refresh();setInterval(()=>{if(!document.hidden&&!document.querySelector('dialog[open]')&&!moving&&!hold)refresh();},7000);

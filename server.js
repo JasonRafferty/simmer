@@ -105,7 +105,7 @@ const server=createServer(async(req,res)=>{try{
   }
   if(req.method!=='GET')return send(res,405,{error:'Method not allowed'});
   const file=resolve(ROOT,'.'+decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname));if(!file.startsWith(ROOT+'/'))return send(res,404,{error:'Not found'});
-  try{const content=await readFile(file);res.writeHead(200,{'Content-Type':({'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'})[extname(file)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});res.end(content);}catch{return send(res,404,{error:'Not found'});}
+  try{const content=await readFile(file);res.writeHead(200,{'Content-Type':({'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.webmanifest':'application/manifest+json','.png':'image/png'})[extname(file)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});res.end(content);}catch{return send(res,404,{error:'Not found'});}
 }catch(e){send(res,e.status||400,{error:e.message||'Something went wrong.'});}});
 server.listen(PORT,()=>{console.log(`Simmer on http://localhost:${PORT}`);setImmediate(()=>catalogueFilters(catalogue));});
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>server.close(()=>{catalogue.close();db.close();process.exit(0);}));
